@@ -214,7 +214,16 @@ async def handle_customer_message(customer_chat_id: int, text: str):
         f"📩 Customer {customer_number} ({result['source_language']}):\n\n{result['translated_text']}\n\n"
         f"Reply with /switch {customer_number} if you're not already talking to them.",
     )
-    await send_message(customer_chat_id, "Thanks for your message — we'll get back to you shortly.")
+
+    if result["source_language"].lower() == "english":
+        ack_text = "Thanks for your message — we'll get back to you shortly."
+    else: 
+        ack_result = translate(
+            "Thanks for your message — we'll get back to you shortly.",
+            target_language=result["source_language"],
+        )
+        ack_text = ack_result["translated_text"]
+    await send_message(customer_chat_id, ack_text)
 
 
 async def handle_owner_message(owner_id: int, text: str):
