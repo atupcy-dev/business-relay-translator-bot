@@ -20,15 +20,103 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+# ---------------------------------------------------------------------
+# ATUPCY BRIDGE DATABASE HELPERS
+# ---------------------------------------------------------------------
+
+BRIDGE_BUSINESSES_TABLE = "atupcy_bridge_businesses"
+BRIDGE_CUSTOMERS_TABLE = "atupcy_bridge_customers"
+BRIDGE_CONVERSATIONS_TABLE = "atupcy_bridge_conversations"
+BRIDGE_MESSAGES_TABLE = "atupcy_bridge_messages"
+BRIDGE_USAGE_TABLE = "atupcy_bridge_usage_events"
+
+
+def get_bridge_business():
+    """Get the active Atupcy Bridge business."""
+    response = (
+        supabase
+        .table(BRIDGE_BUSINESSES_TABLE)
+        .select("*")
+        .eq("status", "active")
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
 # The business owner's language — what customer messages get translated
 # into. Kept simple for MVP; could become configurable per business later.
 OWNER_LANGUAGE = "English"
-
 
 @app.get("/")
 async def health_check():
     return {"status": "ok", "message": "Business relay bot is running"}
 
+@app.get("/bridge-test")
+async def bridge_test():
+    business = get_bridge_business()
+
+    if not business:
+        return {
+            "status": "error",
+            "message": "No active Atupcy Bridge business found"
+        }
+
+    return {
+        "status": "ok",
+        "business": business
+    }
+
+async def get_or_create_bridge_customer(
+    business_id: str,
+    customer_chat_id: int,
+    customer_name: str | None = None
+):
+    """
+    Find an existing Atupcy Bridge customer or create a new one.
+    """
+
+    response = (
+        supabase
+        .table("atupcy_bridge_customers")
+        .select("*")
+        .eq("business_id", business_id)
+        .eq("channel", "telegram")
+        .eq("channel_user_id", str(customer_chat_id))
+        .execute()
+    )
+
+    customers = response.data or []
+
+    if customers:
+        return customers[0]
+
+    new_customer = {
+        "business_id": business_id,
+        "channel": "telegram",
+        "channel_user_id": str(customer_chat_id),
+        "name": customer_name,
+    }
+
+    response = (
+        supabase
+        .table("atupcy_bridge_customers")
+        .insert(new_customer)
+        .execute()
+    )
+
+    return response.data[0]
+
+@app.get("/telegram-webhook-info")
+async def telegram_webhook_info():
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{TELEGRAM_API_URL}/getWebhookInfo"
+        )
+
+    return response.json()
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -38,6 +126,7 @@ async def webhook(request: Request):
         return {"ok": True}
 
     chat_id = message["chat"]["id"]
+    customer_name = message["chat"].get("first_name")
     text = message.get("text")
     voice = message.get("voice")
 
@@ -54,6 +143,19 @@ async def webhook(request: Request):
     if not text and not voice:
         return {"ok": True}
 
+    bridge_business = get_bridge_business()
+
+    if bridge_business:
+        bridge_customer = await get_or_create_bridge_customer(
+            business_id=bridge_business["id"],
+            customer_chat_id=chat_id,
+            customer_name=customer_name
+        )
+
+        print("BRIDGE CUSTOMER:", bridge_customer)
+
+        return {"ok": True}
+    
     owner_id = get_registered_owner()
 
     if owner_id is None:
@@ -76,17 +178,11 @@ async def webhook(request: Request):
 
     return {"ok": True}
 
-
-# ---------------------------------------------------------------------
-# Registration and customer management
-# ---------------------------------------------------------------------
-
 def get_registered_owner() -> int | None:
     """Return the registered business owner's chat_id, or None if unset."""
     response = supabase.table("relay_config").select("owner_chat_id").eq("id", 1).execute()
     rows = response.data or []
     return rows[0]["owner_chat_id"] if rows else None
-
 
 async def handle_register(chat_id: int):
     """
@@ -108,7 +204,6 @@ async def handle_register(chat_id: int):
         "✅ You're now registered as the business owner. Customers who message this bot will have their messages "
         "translated to you automatically. Use /customers to see who's messaged you, and /switch <number> to reply to a specific customer.",
     )
-
 
 async def get_or_create_customer(owner_id: int, customer_chat_id: int) -> int:
     """
@@ -141,7 +236,6 @@ async def get_or_create_customer(owner_id: int, customer_chat_id: int) -> int:
     ).execute()
     return next_number
 
-
 async def handle_list_customers(chat_id: int):
     owner_id = get_registered_owner()
     if owner_id != chat_id:
@@ -162,7 +256,6 @@ async def handle_list_customers(chat_id: int):
 
     numbers = ", ".join(f"Customer {r['customer_number']}" for r in rows)
     await send_message(chat_id, f"Known customers: {numbers}\n\nUse /switch <number> to reply to one.")
-
 
 async def handle_switch(chat_id: int, text: str):
     owner_id = get_registered_owner()
@@ -190,11 +283,6 @@ async def handle_switch(chat_id: int, text: str):
 
     supabase.table("relay_config").update({"active_customer_chat_id": rows[0]["customer_chat_id"]}).eq("id", 1).execute()
     await send_message(chat_id, f"✅ Now replying to Customer {customer_number}.")
-
-
-# ---------------------------------------------------------------------
-# Message relay logic
-# ---------------------------------------------------------------------
 
 async def handle_customer_message(customer_chat_id: int, text: str):
     """A customer messaged — translate to the owner's language and forward it."""
@@ -225,7 +313,6 @@ async def handle_customer_message(customer_chat_id: int, text: str):
         ack_text = ack_result["translated_text"]
     await send_message(customer_chat_id, ack_text)
 
-
 async def handle_owner_message(owner_id: int, text: str):
     """The owner sent a message — translate it to the active customer's language and send it."""
     config_response = supabase.table("relay_config").select("active_customer_chat_id").eq("id", 1).execute()
@@ -252,7 +339,6 @@ async def handle_owner_message(owner_id: int, text: str):
     result = translate(text, target_language=customer_language)
     await send_message(active_customer_id, result["translated_text"])
     await send_message(owner_id, f"✅ Sent to customer in {customer_language}.")
-
 
 def translate(text: str, target_language: str) -> dict:
     """
@@ -281,7 +367,6 @@ Respond with ONLY a JSON object in this exact format:
     raw = response.choices[0].message.content.strip()
     return json.loads(raw)
 
-
 async def transcribe_voice(file_id: str) -> str:
     async with httpx.AsyncClient() as client:
         file_info_resp = await client.get(f"{TELEGRAM_API_URL}/getFile", params={"file_id": file_id})
@@ -298,7 +383,6 @@ async def transcribe_voice(file_id: str) -> str:
         file=("voice.ogg", audio_bytes, "audio/ogg"),
     )
     return transcription.text
-
 
 async def send_message(chat_id: int, text: str):
     async with httpx.AsyncClient() as client:
