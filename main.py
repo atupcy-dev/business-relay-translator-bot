@@ -50,18 +50,21 @@ async def telegram_webhook_info():
 
 @app.get("/bridge-test")
 async def bridge_test():
+
     response = (
         supabase
         .table(BRIDGE_BUSINESSES_TABLE)
-        .select("id, business_name, owner_chat_id, owner_language, default_channel, status")
+        .select("*")
+        .eq("status", "active")
+        .limit(1)
         .execute()
     )
 
     return {
-            "status": "ok",
-            "supabase_rows": response.data,
-            "row_count": len(response.data or [])
-        }
+        "status": "ok",
+        "data": response.data,
+        "count": len(response.data or [])
+    }
 
 def get_active_business():
     """
