@@ -100,8 +100,7 @@ async def get_or_create_bridge_customer(
         .table(BRIDGE_CUSTOMERS_TABLE)
         .select("*")
         .eq("business_id", business_id)
-        .eq("channel", "telegram")
-        .eq("channel_user_id", str(customer_chat_id))
+        .eq("telegram_chat_id", str(customer_chat_id))
         .limit(1)
         .execute()
     )
@@ -111,11 +110,28 @@ async def get_or_create_bridge_customer(
     if customers:
         return customers[0]
 
+    # Get existing customer numbers for this business
+    number_response = (
+        supabase
+        .table(BRIDGE_CUSTOMERS_TABLE)
+        .select("customer_number")
+        .eq("business_id", business_id)
+        .execute()
+    )
+
+    existing_numbers = [
+        int(row["customer_number"])
+        for row in (number_response.data or [])
+        if row.get("customer_number") is not None
+    ]
+
+    next_customer_number = max(existing_numbers, default=0) + 1
+
     new_customer = {
         "business_id": business_id,
-        "channel": "telegram",
-        "channel_user_id": str(customer_chat_id),
-        "name": customer_name
+        "telegram_chat_id": str(customer_chat_id),
+        "customer_number": next_customer_number,
+        "name": customer_name,
     }
 
     response = (
@@ -128,10 +144,9 @@ async def get_or_create_bridge_customer(
     rows = response.data or []
 
     if not rows:
-        raise Exception("Failed to create Bridge customer")
+        raise Exception("Failed to create Atupcy Bridge customer")
 
     return rows[0]
-
 
 def get_or_create_conversation(
     business_id: str,
