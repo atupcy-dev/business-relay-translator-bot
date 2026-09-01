@@ -555,7 +555,7 @@ async def handle_owner_message(
         )
         return
 
-    customer_chat_id = int(customer["channel_user_id"])
+    customer_chat_id = int(customer["telegram_chat_id"])
 
 
     customer_language = get_latest_customer_language(
