@@ -587,6 +587,13 @@ async def handle_owner_message(
 
     translated_text = result["translated_text"]
 
+    save_usage_event(
+    business_id=business_id,
+    conversation_id=conversation_id,
+    event_type="owner_message",
+    channel="telegram",
+    language=customer_language
+)
 
     save_bridge_message(
         conversation_id=conversation_id,
