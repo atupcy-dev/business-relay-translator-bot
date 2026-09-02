@@ -411,6 +411,8 @@ async def handle_customer_message(
     business_id = business["id"]
     owner_chat_id = int(business["owner_chat_id"])
 
+    was_voice = voice is not None
+
     owner_language = (
         business.get("owner_language")
         or DEFAULT_OWNER_LANGUAGE
@@ -459,13 +461,14 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
-    save_usage_event(
-    business_id=business_id,
-    conversation_id=conversation_id,
-    event_type="translation",
-    channel="telegram",
-    language=customer_language
-)
+    if was_voice:
+        save_usage_event(
+            business_id=business_id,
+            conversation_id=conversation_id,
+            event_type="voice_transcription",
+            channel="telegram",
+            language=source_language
+        )
 
     save_usage_event(
     business_id=business_id,
@@ -482,6 +485,15 @@ async def handle_customer_message(
     channel="telegram",
     language=source_language
 )
+
+    if was_voice:
+        save_usage_event(
+            business_id=business_id,
+            conversation_id=conversation_id,
+            event_type="voice_transcription",
+            channel="telegram",
+            language=source_language
+        )
 
     supabase.table(BRIDGE_CUSTOMERS_TABLE).update(
     {
@@ -548,6 +560,7 @@ async def handle_owner_message(
 ):
 
     business_id = business["id"]
+    was_voice = voice is not None
 
 
     if voice:
@@ -602,6 +615,14 @@ async def handle_owner_message(
     )
 
     translated_text = result["translated_text"]
+    if was_voice:
+        save_usage_event(
+            business_id=business_id,
+            conversation_id=conversation_id,
+            event_type="voice_transcription",
+            channel="telegram",
+            language=customer_language
+    )
 
     save_usage_event(
     business_id=business_id,
