@@ -459,6 +459,14 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
+    save_usage_event(
+    business_id=business_id,
+    conversation_id=conversation_id,
+    event_type="customer_message",
+    channel="telegram",
+    language=source_language
+)
+
     supabase.table(BRIDGE_CUSTOMERS_TABLE).update(
     {
         "language": source_language,
@@ -602,6 +610,22 @@ async def handle_owner_message(
         f"✅ Message sent to {customer.get('name') or 'customer'} in {customer_language}."
     )
 
+def save_usage_event(
+    business_id: str,
+    conversation_id: str,
+    event_type: str,
+    channel: str,
+    language: str | None = None
+):
+    supabase.table("atupcy_bridge_usage_events").insert(
+        {
+            "business_id": business_id,
+            "conversation_id": conversation_id,
+            "event_type": event_type,
+            "channel": channel,
+            "language": language
+        }
+    ).execute()
 
 def translate(
     text: str,
