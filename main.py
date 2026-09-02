@@ -462,6 +462,22 @@ async def handle_customer_message(
     save_usage_event(
     business_id=business_id,
     conversation_id=conversation_id,
+    event_type="translation",
+    channel="telegram",
+    language=customer_language
+)
+
+    save_usage_event(
+    business_id=business_id,
+    conversation_id=conversation_id,
+    event_type="translation",
+    channel="telegram",
+    language=source_language
+)
+
+    save_usage_event(
+    business_id=business_id,
+    conversation_id=conversation_id,
     event_type="customer_message",
     channel="telegram",
     language=source_language
