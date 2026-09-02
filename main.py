@@ -459,6 +459,15 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
+    supabase.table(BRIDGE_CUSTOMERS_TABLE).update(
+    {
+        "language": source_language,
+        "last_seen_at": datetime.now(timezone.utc).isoformat()
+    }
+).eq(
+    "id",
+    customer_id
+).execute()
 
     save_bridge_message(
         conversation_id=conversation_id,
