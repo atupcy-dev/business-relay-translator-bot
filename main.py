@@ -303,6 +303,28 @@ def update_conversation_timestamp(conversation_id: str):
         }
     ).eq("id", conversation_id).execute()
 
+def get_conversation_messages(conversation_id: str):
+    response = (
+        supabase
+        .table(BRIDGE_MESSAGES_TABLE)
+        .select("*")
+        .eq("conversation_id", conversation_id)
+        .order("created_at", desc=False)
+        .execute()
+    )
+
+    return response.data or []
+
+@app.get("/conversation-test/{conversation_id}")
+async def conversation_test(conversation_id: str):
+    messages = get_conversation_messages(conversation_id)
+
+    return {
+        "status": "ok",
+        "conversation_id": conversation_id,
+        "message_count": len(messages),
+        "messages": messages
+    }
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -471,29 +493,20 @@ async def handle_customer_message(
         )
 
     save_usage_event(
-    business_id=business_id,
-    conversation_id=conversation_id,
-    event_type="translation",
-    channel="telegram",
-    language=source_language
-)
+        business_id=business_id,
+        conversation_id=conversation_id,
+        event_type="translation",
+        channel="telegram",
+        language=source_language
+    )
 
     save_usage_event(
-    business_id=business_id,
-    conversation_id=conversation_id,
-    event_type="customer_message",
-    channel="telegram",
-    language=source_language
-)
-
-    if was_voice:
-        save_usage_event(
-            business_id=business_id,
-            conversation_id=conversation_id,
-            event_type="voice_transcription",
-            channel="telegram",
-            language=source_language
-        )
+        business_id=business_id,
+        conversation_id=conversation_id,
+        event_type="customer_message",
+        channel="telegram",
+        language=source_language
+    )
 
     supabase.table(BRIDGE_CUSTOMERS_TABLE).update(
     {
