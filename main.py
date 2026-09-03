@@ -315,17 +315,6 @@ def get_conversation_messages(conversation_id: str):
 
     return response.data or []
 
-@app.get("/conversation-test/{conversation_id}")
-async def conversation_test(conversation_id: str):
-    messages = get_conversation_messages(conversation_id)
-
-    return {
-        "status": "ok",
-        "conversation_id": conversation_id,
-        "message_count": len(messages),
-        "messages": messages
-    }
-
 @app.post("/webhook")
 async def webhook(request: Request):
 
