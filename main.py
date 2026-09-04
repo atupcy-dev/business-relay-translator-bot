@@ -1,5 +1,6 @@
 import os
 import json
+import traceback
 import httpx
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -404,6 +405,7 @@ async def webhook(request: Request):
 
     except Exception as e:
         print("CUSTOMER MESSAGE ERROR:", repr(e))
+        traceback.print_exc()
 
         await send_message(
             chat_id,
@@ -887,7 +889,7 @@ async def handle_owner_message(
         owner_chat_id,
         f"✅ Message sent to {customer.get('name') or 'customer'} in {customer_language}."
     )
-    
+
 def save_usage_event(
     business_id: str,
     conversation_id: str,
