@@ -21,6 +21,8 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+AI_SUPPORT_WEBHOOK_URL = os.getenv("AI_SUPPORT_WEBHOOK_URL")
+
 
 BRIDGE_BUSINESSES_TABLE = "atupcy_bridge_businesses"
 BRIDGE_CUSTOMERS_TABLE = "atupcy_bridge_customers"
@@ -410,6 +412,17 @@ async def webhook(request: Request):
 
     return {"ok": True}
 
+@app.post("/support-test")
+async def support_test():
+    result = await send_to_ai_support(
+        conversation_id="test-conversation",
+        message="Hello, can you help me with my order?"
+    )
+
+    return {
+        "status": "ok",
+        "result": result
+    }
 
 async def handle_customer_message(
     customer_chat_id: int,
@@ -553,6 +566,55 @@ async def handle_customer_message(
         acknowledgement
     )
 
+def get_conversation_by_id(conversation_id: str):
+    """
+    Get one Atupcy Bridge conversation by database ID.
+    """
+
+    response = (
+        supabase
+        .table(BRIDGE_CONVERSATIONS_TABLE)
+        .select("*")
+        .eq("id", conversation_id)
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+def get_business_conversations(business_id: str):
+    """
+    Get all Telegram conversations for a business,
+    with the most recently active conversations first.
+    """
+
+    response = (
+        supabase
+        .table(BRIDGE_CONVERSATIONS_TABLE)
+        .select("*")
+        .eq("business_id", business_id)
+        .eq("channel", "telegram")
+        .order("last_message_at", desc=True)
+        .execute()
+    )
+
+    return response.data or []
+
+def close_conversation(conversation_id: str):
+    """
+    Close an active Atupcy Bridge conversation.
+    """
+
+    supabase.table(BRIDGE_CONVERSATIONS_TABLE).update(
+        {
+            "status": "closed"
+        }
+    ).eq(
+        "id",
+        conversation_id
+    ).execute()
 
 async def handle_owner_message(
     owner_chat_id: int,
@@ -720,6 +782,25 @@ Respond with ONLY a JSON object in exactly this format:
 
     return json.loads(raw)
 
+async def send_to_ai_support(
+    conversation_id: str,
+    message: str
+):
+    payload = {
+        "sessionId": conversation_id,
+        "message": message,
+        "email": ""
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            AI_SUPPORT_WEBHOOK_URL,
+            json=payload,
+            timeout=60
+        )
+
+    response.raise_for_status()
+    return response.json()
 
 async def transcribe_voice(file_id: str) -> str:
 
