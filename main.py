@@ -531,7 +531,6 @@ async def handle_customer_message(
 
     update_conversation_timestamp(conversation_id)
 
-
     customer_display_name = customer.get("name") or "Customer"
 
     owner_message = (
@@ -546,25 +545,58 @@ async def handle_customer_message(
         owner_message
     )
 
-    if source_language.lower() == "english":
 
-        acknowledgement = (
-            "Thanks for your message. We'll get back to you shortly."
-        )
+    support_result = await send_to_ai_support(
+                conversation_id=conversation_id,
+                message=text
+            )
 
-    else:
+        
+    ai_reply = support_result.get("reply")
+    escalated = bool(support_result.get("escalated", False))
 
-        acknowledgement_result = translate(
-            text="Thanks for your message. We'll get back to you shortly.",
+        
+    save_usage_event(
+        business_id=business_id,
+        conversation_id=conversation_id,
+        event_type="ai_support",
+        channel="telegram",
+        language=source_language
+    )
+
+
+    
+    if ai_reply and ai_reply.strip():
+
+        ai_translation_result = translate(
+            text=ai_reply,
             target_language=source_language
         )
 
-        acknowledgement = acknowledgement_result["translated_text"]
+        translated_ai_reply = ai_translation_result["translated_text"]
 
-    await send_message(
-        customer_chat_id,
-        acknowledgement
-    )
+        save_bridge_message(
+            conversation_id=conversation_id,
+            sender_type="owner",
+            original_text=ai_reply,
+            translated_text=translated_ai_reply,
+            language=source_language,
+            response_source="ai"
+        )
+
+        await send_message(
+            customer_chat_id,
+            translated_ai_reply
+        )
+
+    if escalated:
+        await send_message(
+            owner_chat_id,
+            f"🚨 AI Support Escalation\n\n"
+            f"Customer: {customer_display_name}\n"
+            f"Language: {source_language}\n\n"
+            f"The AI support agent has flagged this conversation for human review."
+        )
 
 def get_conversation_by_id(conversation_id: str):
     """
