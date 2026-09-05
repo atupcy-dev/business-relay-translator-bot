@@ -1537,20 +1537,94 @@ async def handle_close_command(
             customer_id
         )
 
+    if not customer:
+
+        await send_message(
+            owner_chat_id,
+            "The customer for this conversation could not be found."
+        )
+
+        return
+
     customer_name = (
         customer.get("name")
-        if customer
-        else "Customer"
+        or "Customer"
     )
+
+    customer_chat_id = int(
+        customer["telegram_chat_id"]
+    )
+
+    customer_language = (
+        get_latest_customer_language(
+            conversation_id
+        )
+        or customer.get("language")
+        or DEFAULT_OWNER_LANGUAGE
+    )
+
 
     close_conversation(
         conversation_id
     )
 
+
     clear_owner_selected_conversation(
         business_id=business_id,
         owner_chat_id=owner_chat_id
     )
+
+
+    customer_close_message = (
+        "👋 Thank you for contacting us. "
+        "This conversation has been closed. "
+        "You can send a new message anytime "
+        "if you need further assistance."
+    )
+
+    try:
+
+        if customer_language.lower() != "english":
+
+            consume_bridge_credits(
+                business_id=business_id,
+                credits=1,
+                conversation_id=conversation_id,
+                event_type="translation",
+                channel="telegram",
+                description="Customer conversation close notification translation"
+            )
+
+            translated_close_message = translate(
+                text=customer_close_message,
+                target_language=customer_language
+            )["translated_text"]
+
+        else:
+
+            translated_close_message = (
+                customer_close_message
+            )
+
+        await send_message(
+            customer_chat_id,
+            translated_close_message
+        )
+
+    except Exception as e:
+
+        print(
+            "CUSTOMER CLOSE MESSAGE ERROR:",
+            repr(e)
+        )
+
+        # Fallback message if translation/sending fails
+
+        await send_message(
+            customer_chat_id,
+            customer_close_message
+        )
+
 
     await send_message(
         owner_chat_id,
