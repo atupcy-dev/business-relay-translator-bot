@@ -331,79 +331,89 @@ async def webhook(request: Request):
     if callback_query:
 
         callback_data = callback_query.get("data")
-        callback_message = callback_query.get("message") or {}
-        callback_chat = callback_message.get("chat") or {}
+
+        callback_message = (
+            callback_query.get("message") or {}
+        )
+
+        callback_chat = (
+            callback_message.get("chat") or {}
+        )
 
         callback_chat_id = callback_chat.get("id")
 
-    if (
-        callback_data
-        and callback_data.startswith("select_customer:")
-        and callback_chat_id
-    ):
+        if (
+            callback_data
+            and callback_data.startswith("select_customer:")
+            and callback_chat_id
+        ):
 
-        customer_id = callback_data.split(
-            "select_customer:",
-            1
-        )[1]
+            customer_id = callback_data.split(
+                "select_customer:",
+                1
+            )[1]
 
-        business = get_active_business()
+            business = get_active_business()
 
-        if not business:
-            return {"ok": True}
+            if not business:
+                return {"ok": True}
 
-        owner_chat_id = business.get("owner_chat_id")
-
-        if not owner_chat_id:
-            return {"ok": True}
-
-        owner_chat_id = int(owner_chat_id)
-
-        if callback_chat_id != owner_chat_id:
-            return {"ok": True}
-
-        customer = get_customer_by_id(
-            customer_id
-        )
-
-        if not customer:
-            await send_message(
-                owner_chat_id,
-                "That customer could not be found."
+            owner_chat_id = business.get(
+                "owner_chat_id"
             )
 
-            return {"ok": True}
+            if not owner_chat_id:
+                return {"ok": True}
 
-        conversation = get_or_create_conversation(
-            business_id=business["id"],
-            customer_id=customer_id
-        )
+            owner_chat_id = int(owner_chat_id)
 
-        set_owner_selected_conversation(
-            business_id=business["id"],
-            owner_chat_id=owner_chat_id,
-            conversation_id=conversation["id"]
-        )
+            if callback_chat_id != owner_chat_id:
+                return {"ok": True}
 
-        customer_name = (
-            customer.get("name")
-            or "Customer"
-        )
+            customer = get_customer_by_id(
+                customer_id
+            )
 
-        customer_language = (
-            customer.get("language")
-            or "Unknown"
-        )
+            if not customer:
 
-        await send_message(
-            owner_chat_id,
-            f"✅ Customer selected\n\n"
-            f"Customer: {customer_name}\n"
-            f"Language: {customer_language}\n\n"
-            f"Your next message will be sent to this customer."
-        )
+                await send_message(
+                    owner_chat_id,
+                    "That customer could not be found."
+                )
+
+                return {"ok": True}
+
+            conversation = get_or_create_conversation(
+                business_id=business["id"],
+                customer_id=customer_id
+            )
+
+            set_owner_selected_conversation(
+                business_id=business["id"],
+                owner_chat_id=owner_chat_id,
+                conversation_id=conversation["id"]
+            )
+
+            customer_name = (
+                customer.get("name")
+                or "Customer"
+            )
+
+            customer_language = (
+                customer.get("language")
+                or "Unknown"
+            )
+
+            await send_message(
+                owner_chat_id,
+                f"✅ Customer selected\n\n"
+                f"Customer: {customer_name}\n"
+                f"Language: {customer_language}\n\n"
+                f"Your next message will be sent to this customer."
+            )
 
         return {"ok": True}
+
 
     message = update.get("message")
 
@@ -432,16 +442,23 @@ async def webhook(request: Request):
     business = get_active_business()
 
     if not business:
+
         await send_message(
             chat_id,
             "Atupcy Bridge is not currently connected to an active business."
         )
+
         return {"ok": True}
 
-    owner_chat_id = business.get("owner_chat_id")
+    owner_chat_id = business.get(
+        "owner_chat_id"
+    )
 
     if not owner_chat_id:
-        print("ERROR: Active business has no owner_chat_id")
+
+        print(
+            "ERROR: Active business has no owner_chat_id"
+        )
 
         await send_message(
             chat_id,
@@ -452,19 +469,25 @@ async def webhook(request: Request):
 
     owner_chat_id = int(owner_chat_id)
 
-    
+
     if chat_id == owner_chat_id:
 
-        
-        if text and text.strip().lower() == "/customers":
+
+        if (
+            text
+            and text.strip().lower()
+            == "/customers"
+        ):
 
             try:
+
                 await handle_customers_command(
                     owner_chat_id=owner_chat_id,
                     business=business
                 )
 
             except Exception as e:
+
                 print(
                     "CUSTOMERS COMMAND ERROR:",
                     repr(e)
@@ -479,6 +502,7 @@ async def webhook(request: Request):
 
 
         try:
+
             await handle_owner_message(
                 owner_chat_id=owner_chat_id,
                 business=business,
@@ -487,6 +511,7 @@ async def webhook(request: Request):
             )
 
         except Exception as e:
+
             print(
                 "OWNER MESSAGE ERROR:",
                 repr(e)
@@ -501,6 +526,7 @@ async def webhook(request: Request):
 
 
     try:
+
         await handle_customer_message(
             customer_chat_id=chat_id,
             customer_name=customer_name,
@@ -510,6 +536,7 @@ async def webhook(request: Request):
         )
 
     except Exception as e:
+
         print(
             "CUSTOMER MESSAGE ERROR:",
             repr(e)
