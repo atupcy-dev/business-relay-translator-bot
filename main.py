@@ -349,7 +349,6 @@ async def webhook(request: Request):
     if not text and not voice:
         return {"ok": True}
 
-
     business = get_active_business()
 
     if not business:
@@ -373,8 +372,32 @@ async def webhook(request: Request):
 
     owner_chat_id = int(owner_chat_id)
 
-
+    
     if chat_id == owner_chat_id:
+
+        
+        if text and text.strip().lower() == "/customers":
+
+            try:
+                await handle_customers_command(
+                    owner_chat_id=owner_chat_id,
+                    business=business
+                )
+
+            except Exception as e:
+                print(
+                    "CUSTOMERS COMMAND ERROR:",
+                    repr(e)
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    "Sorry, something went wrong while loading your customers."
+                )
+
+            return {"ok": True}
+
+
         try:
             await handle_owner_message(
                 owner_chat_id=owner_chat_id,
@@ -384,7 +407,10 @@ async def webhook(request: Request):
             )
 
         except Exception as e:
-            print("OWNER MESSAGE ERROR:", repr(e))
+            print(
+                "OWNER MESSAGE ERROR:",
+                repr(e)
+            )
 
             await send_message(
                 owner_chat_id,
@@ -404,7 +430,11 @@ async def webhook(request: Request):
         )
 
     except Exception as e:
-        print("CUSTOMER MESSAGE ERROR:", repr(e))
+        print(
+            "CUSTOMER MESSAGE ERROR:",
+            repr(e)
+        )
+
         traceback.print_exc()
 
         await send_message(
@@ -1030,6 +1060,49 @@ async def handle_owner_message(
     await send_message(
         owner_chat_id,
         f"✅ Message sent to {customer.get('name') or 'customer'} in {customer_language}."
+    )
+
+async def handle_customers_command(
+    owner_chat_id: int,
+    business: dict
+):
+    business_id = business["id"]
+
+    response = (
+        supabase
+        .table(BRIDGE_CUSTOMERS_TABLE)
+        .select(
+            "id, name, telegram_chat_id, language, last_seen_at"
+        )
+        .eq("business_id", business_id)
+        .order("last_seen_at", desc=True)
+        .execute()
+    )
+
+    customers = response.data or []
+
+    if not customers:
+        await send_message(
+            owner_chat_id,
+            "There are no customers yet."
+        )
+        return
+
+    lines = ["👥 Your Customers\n"]
+
+    for index, customer in enumerate(customers, start=1):
+
+        name = customer.get("name") or "Customer"
+        language = customer.get("language") or "Unknown"
+
+        lines.append(
+            f"{index}. {name}\n"
+            f"   Language: {language}"
+        )
+
+    await send_message(
+        owner_chat_id,
+        "\n\n".join(lines)
     )
 
 def save_usage_event(
