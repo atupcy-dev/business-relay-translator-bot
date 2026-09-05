@@ -452,7 +452,10 @@ async def handle_customer_message(
 
     customer_id = customer["id"]
 
-    print("ATUPCY BRIDGE CUSTOMER:", customer)
+    print(
+        "ATUPCY BRIDGE CUSTOMER:",
+        customer
+    )
 
     conversation = get_or_create_conversation(
         business_id=business_id,
@@ -461,16 +464,20 @@ async def handle_customer_message(
 
     conversation_id = conversation["id"]
 
-    print("ATUPCY BRIDGE CONVERSATION:", conversation)
+    print(
+        "ATUPCY BRIDGE CONVERSATION:",
+        conversation
+    )
 
 
     if not text and not voice:
         return
 
-
+    
     required_credits = 7 if voice else 4
 
     try:
+
         credit_check = check_bridge_credits(
             business_id=business_id,
             credits=required_credits
@@ -480,13 +487,16 @@ async def handle_customer_message(
             "has_enough_credits",
             False
         ):
+
             await send_message(
                 customer_chat_id,
                 "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
             )
+
             return
 
     except Exception as e:
+
         print(
             "CUSTOMER CREDIT CHECK FAILED:",
             repr(e)
@@ -496,6 +506,7 @@ async def handle_customer_message(
             customer_chat_id,
             "I'm sorry, but I can't process your message right now. Please try again later."
         )
+
         return
 
 
@@ -506,13 +517,16 @@ async def handle_customer_message(
         )
 
         if not text or not text.strip():
+
             await send_message(
                 customer_chat_id,
                 "I couldn't make out any speech in that voice note. Please try again."
             )
+
             return
 
         try:
+
             consume_bridge_credits(
                 business_id=business_id,
                 credits=3,
@@ -523,17 +537,21 @@ async def handle_customer_message(
             )
 
         except Exception as e:
+
             print(
                 "VOICE CREDIT CONSUMPTION FAILED:",
                 repr(e)
             )
+
             return
 
 
     if not text or not text.strip():
         return
 
+
     try:
+
         consume_bridge_credits(
             business_id=business_id,
             credits=1,
@@ -544,6 +562,7 @@ async def handle_customer_message(
         )
 
     except Exception as e:
+
         print(
             "CUSTOMER TRANSLATION CREDIT CONSUMPTION FAILED:",
             repr(e)
@@ -553,6 +572,7 @@ async def handle_customer_message(
             customer_chat_id,
             "I'm sorry, but I can't process your message right now. Please try again later."
         )
+
         return
 
     result = translate(
@@ -563,7 +583,9 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
+
     if was_voice:
+
         save_usage_event(
             business_id=business_id,
             conversation_id=conversation_id,
@@ -588,7 +610,7 @@ async def handle_customer_message(
         language=source_language
     )
 
-    
+
     supabase.table(
         BRIDGE_CUSTOMERS_TABLE
     ).update(
@@ -637,6 +659,7 @@ async def handle_customer_message(
 
 
     try:
+
         consume_bridge_credits(
             business_id=business_id,
             credits=2,
@@ -647,8 +670,9 @@ async def handle_customer_message(
         )
 
     except Exception as e:
+
         print(
-            "AI SUPPORT CREDIT CHECK FAILED:",
+            "AI SUPPORT CREDIT CONSUMPTION FAILED:",
             repr(e)
         )
 
@@ -656,6 +680,7 @@ async def handle_customer_message(
             customer_chat_id,
             "I'm sorry, but I'm unable to process your request right now. Please try again later."
         )
+
         return
 
     support_result = await send_to_ai_support(
@@ -684,6 +709,7 @@ async def handle_customer_message(
     if ai_reply and ai_reply.strip():
 
         try:
+
             consume_bridge_credits(
                 business_id=business_id,
                 credits=1,
@@ -694,8 +720,9 @@ async def handle_customer_message(
             )
 
         except Exception as e:
+
             print(
-                "AI RESPONSE TRANSLATION CREDIT CHECK FAILED:",
+                "AI RESPONSE TRANSLATION CREDIT CONSUMPTION FAILED:",
                 repr(e)
             )
 
@@ -703,6 +730,7 @@ async def handle_customer_message(
                 customer_chat_id,
                 "I'm sorry, but I couldn't complete the response right now. Please try again later."
             )
+
             return
 
         ai_translation_result = translate(
