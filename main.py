@@ -464,29 +464,42 @@ async def handle_customer_message(
     print("ATUPCY BRIDGE CONVERSATION:", conversation)
 
 
-    if voice:
+    if not text and not voice:
+        return
 
-        try:
-            credit_check = check_bridge_credits(
-                business_id=business_id,
-                credits=3
-            )
 
-            if not credit_check.get("has_enough_credits", False):
-                await send_message(
-                    customer_chat_id,
-                    "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
-                    )
-                return
+    required_credits = 7 if voice else 4
 
-        except Exception as e:
-            print("VOICE CREDIT CHECK FAILED:", repr(e))
+    try:
+        credit_check = check_bridge_credits(
+            business_id=business_id,
+            credits=required_credits
+        )
 
+        if not credit_check.get(
+            "has_enough_credits",
+            False
+        ):
             await send_message(
                 customer_chat_id,
-                "I'm sorry, but I can't process voice messages right now. Please try again later."
+                "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
             )
             return
+
+    except Exception as e:
+        print(
+            "CUSTOMER CREDIT CHECK FAILED:",
+            repr(e)
+        )
+
+        await send_message(
+            customer_chat_id,
+            "I'm sorry, but I can't process your message right now. Please try again later."
+        )
+        return
+
+
+    if voice:
 
         text = await transcribe_voice(
             voice["file_id"]
@@ -517,46 +530,38 @@ async def handle_customer_message(
             return
 
 
-        if not text or not text.strip():
-            return
-        
-        required_credits = 7 if was_voice else 4
+    if not text or not text.strip():
+        return
 
-        try:
-            credit_check = check_bridge_credits(
-                business_id=business_id,
-                credits=required_credits
-            )
-
-            if not credit_check.get(
-                "has_enough_credits",
-                False
-            ):
-                await send_message(
-                    customer_chat_id,
-                    "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
-                )
-                return
-
-        except Exception as e:
-            print(
-                "CUSTOMER CREDIT CHECK FAILED:", repr(e)
-            )
-
-            await send_message(
-                customer_chat_id,
-                "I'm sorry, but I can't process your message right now. Please try again later."
-            )
-            return
-
-        result = translate(
-            text=text,
-            target_language=owner_language
+    try:
+        consume_bridge_credits(
+            business_id=business_id,
+            credits=1,
+            conversation_id=conversation_id,
+            event_type="translation",
+            channel="telegram",
+            description="Customer message translation"
         )
+
+    except Exception as e:
+        print(
+            "CUSTOMER TRANSLATION CREDIT CONSUMPTION FAILED:",
+            repr(e)
+        )
+
+        await send_message(
+            customer_chat_id,
+            "I'm sorry, but I can't process your message right now. Please try again later."
+        )
+        return
+
+    result = translate(
+        text=text,
+        target_language=owner_language
+    )
 
     source_language = result["source_language"]
     translated_text = result["translated_text"]
-
 
     if was_voice:
         save_usage_event(
