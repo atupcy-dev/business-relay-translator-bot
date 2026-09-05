@@ -463,12 +463,18 @@ async def handle_customer_message(
 
     print("ATUPCY BRIDGE CONVERSATION:", conversation)
 
+    print("CREDIT DEBUG: customer/conversation ready")
+    print("CREDIT DEBUG: business_id =", business_id)
+    print("CREDIT DEBUG: conversation_id =", conversation_id)
+
     if voice:
         try:
             credit_check = check_bridge_credits(
                 business_id=business_id,
                 credits=3
             )
+
+            print("CREDIT DEBUG: voice check result =", credit_check)
 
             if not credit_check.get("has_enough_credits", False):
                 await send_message(
@@ -495,6 +501,7 @@ async def handle_customer_message(
         )
         return
 
+
     try:
         consume_bridge_credits(
             business_id=business_id,
@@ -505,13 +512,13 @@ async def handle_customer_message(
             description="Customer message translation"
         )
     except Exception as e:
-        print("TRANSLATION CREDIT CHECK FAILED:", e)
+        print("TRANSLATION CREDIT CHECK FAILED:", repr(e))
 
         await send_message(
             customer_chat_id,
             "I'm sorry, but I can't process your message right now. Please try again later."
         )
-        return
+        return 
  
     try:
         consume_bridge_credits(
