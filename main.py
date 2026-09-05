@@ -474,8 +474,6 @@ async def handle_customer_message(
                 credits=3
             )
 
-            print("CREDIT DEBUG: voice check result =", credit_check)
-
             if not credit_check.get("has_enough_credits", False):
                 await send_message(
                     customer_chat_id,
@@ -484,7 +482,7 @@ async def handle_customer_message(
                 return
 
         except Exception as e:
-            print("VOICE CREDIT CHECK FAILED:", e)
+            print("VOICE CREDIT CHECK FAILED:", repr(e))
 
         await send_message(
             customer_chat_id,
@@ -501,6 +499,21 @@ async def handle_customer_message(
         )
         return
 
+    try:
+            consume_bridge_credits(
+                business_id=business_id,
+                credits=3,
+                conversation_id=conversation_id,
+                event_type="voice_transcription",
+                channel="telegram",
+                description="Voice message transcription"
+            )
+    except Exception as e:
+            print("VOICE CREDIT CONSUMPTION FAILED:", e)
+            return
+
+    if not text or not text.strip():
+        return
 
     try:
         consume_bridge_credits(
@@ -519,19 +532,6 @@ async def handle_customer_message(
             "I'm sorry, but I can't process your message right now. Please try again later."
         )
         return 
- 
-    try:
-        consume_bridge_credits(
-            business_id=business_id,
-            credits=3,
-            conversation_id=conversation_id,
-            event_type="voice_transcription",
-            channel="telegram",
-            description="Voice message transcription"
-        )
-    except Exception as e:
-        print("VOICE CREDIT CONSUMPTION FAILED:", e)
-        return
     
     result = translate(
         text=text,
