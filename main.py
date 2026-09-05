@@ -463,9 +463,6 @@ async def handle_customer_message(
 
     print("ATUPCY BRIDGE CONVERSATION:", conversation)
 
-    # ---------------------------------
-    # VOICE TRANSCRIPTION
-    # ---------------------------------
 
     if voice:
 
@@ -478,8 +475,8 @@ async def handle_customer_message(
             if not credit_check.get("has_enough_credits", False):
                 await send_message(
                     customer_chat_id,
-                    "You have reached the available usage limit. Please contact the business for assistance."
-                )
+                    "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
+                    )
                 return
 
         except Exception as e:
@@ -519,16 +516,10 @@ async def handle_customer_message(
             )
             return
 
-    # ---------------------------------
-    # EMPTY MESSAGE CHECK
-    # ---------------------------------
 
     if not text or not text.strip():
         return
 
-    # ---------------------------------
-    # CUSTOMER MESSAGE TRANSLATION
-    # ---------------------------------
 
     try:
         consume_bridge_credits(
@@ -560,9 +551,6 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
-    # ---------------------------------
-    # USAGE TRACKING
-    # ---------------------------------
 
     if was_voice:
         save_usage_event(
@@ -589,10 +577,7 @@ async def handle_customer_message(
         language=source_language
     )
 
-    # ---------------------------------
-    # UPDATE CUSTOMER
-    # ---------------------------------
-
+    
     supabase.table(
         BRIDGE_CUSTOMERS_TABLE
     ).update(
@@ -607,9 +592,6 @@ async def handle_customer_message(
         customer_id
     ).execute()
 
-    # ---------------------------------
-    # SAVE CUSTOMER MESSAGE
-    # ---------------------------------
 
     save_bridge_message(
         conversation_id=conversation_id,
@@ -629,9 +611,6 @@ async def handle_customer_message(
         or "Customer"
     )
 
-    # ---------------------------------
-    # SEND TO OWNER
-    # ---------------------------------
 
     owner_message = (
         f"📩 New customer message\n\n"
@@ -645,9 +624,6 @@ async def handle_customer_message(
         owner_message
     )
 
-    # ---------------------------------
-    # AI SUPPORT
-    # ---------------------------------
 
     try:
         consume_bridge_credits(
@@ -693,9 +669,6 @@ async def handle_customer_message(
         language=source_language
     )
 
-    # ---------------------------------
-    # TRANSLATE AI RESPONSE
-    # ---------------------------------
 
     if ai_reply and ai_reply.strip():
 
@@ -744,9 +717,6 @@ async def handle_customer_message(
             translated_ai_reply
         )
 
-    # ---------------------------------
-    # HUMAN ESCALATION
-    # ---------------------------------
 
     if escalated:
 
