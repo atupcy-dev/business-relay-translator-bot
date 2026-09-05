@@ -325,6 +325,86 @@ async def webhook(request: Request):
 
     print("TELEGRAM UPDATE:", update)
 
+
+    callback_query = update.get("callback_query")
+
+    if callback_query:
+
+        callback_data = callback_query.get("data")
+        callback_message = callback_query.get("message") or {}
+        callback_chat = callback_message.get("chat") or {}
+
+        callback_chat_id = callback_chat.get("id")
+
+    if (
+        callback_data
+        and callback_data.startswith("select_customer:")
+        and callback_chat_id
+    ):
+
+        customer_id = callback_data.split(
+            "select_customer:",
+            1
+        )[1]
+
+        business = get_active_business()
+
+        if not business:
+            return {"ok": True}
+
+        owner_chat_id = business.get("owner_chat_id")
+
+        if not owner_chat_id:
+            return {"ok": True}
+
+        owner_chat_id = int(owner_chat_id)
+
+        if callback_chat_id != owner_chat_id:
+            return {"ok": True}
+
+        customer = get_customer_by_id(
+            customer_id
+        )
+
+        if not customer:
+            await send_message(
+                owner_chat_id,
+                "That customer could not be found."
+            )
+
+            return {"ok": True}
+
+        conversation = get_or_create_conversation(
+            business_id=business["id"],
+            customer_id=customer_id
+        )
+
+        set_owner_selected_conversation(
+            business_id=business["id"],
+            owner_chat_id=owner_chat_id,
+            conversation_id=conversation["id"]
+        )
+
+        customer_name = (
+            customer.get("name")
+            or "Customer"
+        )
+
+        customer_language = (
+            customer.get("language")
+            or "Unknown"
+        )
+
+        await send_message(
+            owner_chat_id,
+            f"✅ Customer selected\n\n"
+            f"Customer: {customer_name}\n"
+            f"Language: {customer_language}\n\n"
+            f"Your next message will be sent to this customer."
+        )
+
+        return {"ok": True}
+
     message = update.get("message")
 
     if not message:
@@ -858,9 +938,33 @@ async def handle_owner_message(
     was_voice = voice is not None
 
     
-    conversation = get_owner_active_conversation(
-        business_id=business_id
+
+    owner_session = get_owner_session(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
     )
+
+    conversation = None
+
+    if owner_session:
+
+        selected_conversation_id = (
+            owner_session.get(
+                "selected_conversation_id"
+            )
+        )
+
+    if selected_conversation_id:
+
+        conversation = get_conversation_by_id(
+            selected_conversation_id
+        )
+
+
+    if not conversation:
+        conversation = get_owner_active_conversation(
+            business_id=business_id
+        )
 
     if not conversation:
 
@@ -1088,22 +1192,98 @@ async def handle_customers_command(
         )
         return
 
-    lines = ["👥 Your Customers\n"]
+    buttons = []
 
-    for index, customer in enumerate(customers, start=1):
+    for customer in customers:
 
-        name = customer.get("name") or "Customer"
-        language = customer.get("language") or "Unknown"
+        customer_id = customer["id"]
 
-        lines.append(
-            f"{index}. {name}\n"
-            f"   Language: {language}"
+        name = (
+            customer.get("name")
+            or "Customer"
         )
+
+        language = (
+            customer.get("language")
+            or "Unknown"
+        )
+
+        buttons.append([
+            {
+                "text": f"{name} — {language}",
+                "callback_data": f"select_customer:{customer_id}"
+            }
+        ])
+
+    reply_markup = {
+        "inline_keyboard": buttons
+    }
 
     await send_message(
         owner_chat_id,
-        "\n\n".join(lines)
+        "👥 Your Customers\n\nSelect a customer to reply to:",
+        reply_markup=reply_markup
     )
+
+def get_owner_session(
+    business_id: str,
+    owner_chat_id: int
+):
+    response = (
+        supabase
+        .table("atupcy_bridge_owner_sessions")
+        .select("*")
+        .eq("business_id", business_id)
+        .eq("owner_chat_id", str(owner_chat_id))
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+def set_owner_selected_conversation(
+    business_id: str,
+    owner_chat_id: int,
+    conversation_id: str
+):
+    existing = get_owner_session(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    data = {
+        "business_id": business_id,
+        "owner_chat_id": str(owner_chat_id),
+        "selected_conversation_id": conversation_id,
+        "updated_at": datetime.now(
+            timezone.utc
+        ).isoformat()
+    }
+
+    if existing:
+
+        response = (
+            supabase
+            .table("atupcy_bridge_owner_sessions")
+            .update(data)
+            .eq("id", existing["id"])
+            .execute()
+        )
+
+    else:
+
+        response = (
+            supabase
+            .table("atupcy_bridge_owner_sessions")
+            .insert(data)
+            .execute()
+        )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
 
 def save_usage_event(
     business_id: str,
@@ -1331,17 +1511,24 @@ async def transcribe_voice(file_id: str) -> str:
 
 async def send_message(
     chat_id: int,
-    text: str
+    text: str,
+    reply_markup: dict | None = None
 ):
+
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
 
     async with httpx.AsyncClient() as client:
 
         response = await client.post(
             f"{TELEGRAM_API_URL}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text
-            }
+            json=payload,
+            timeout=30
         )
 
         response.raise_for_status()
