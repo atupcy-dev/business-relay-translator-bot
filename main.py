@@ -757,7 +757,7 @@ async def handle_customer_message(
             f"Language: {source_language}\n\n"
             f"The AI support agent has flagged this conversation for human review."
         )
-        
+
 def get_conversation_by_id(conversation_id: str):
     """
     Get one Atupcy Bridge conversation by database ID.
@@ -1090,6 +1090,7 @@ async def transcribe_voice(file_id: str) -> str:
 
     async with httpx.AsyncClient() as client:
 
+        
         file_info_response = await client.get(
             f"{TELEGRAM_API_URL}/getFile",
             params={
@@ -1097,12 +1098,35 @@ async def transcribe_voice(file_id: str) -> str:
             }
         )
 
+        print(
+            "TELEGRAM GETFILE STATUS:",
+            file_info_response.status_code
+        )
+
+        print(
+            "TELEGRAM GETFILE RESPONSE:",
+            file_info_response.text
+        )
+
         file_info_response.raise_for_status()
 
-        file_data = file_info_response.json()
+        try:
+            file_data = file_info_response.json()
+        except Exception as e:
+            print(
+                "TELEGRAM GETFILE JSON ERROR:",
+                repr(e)
+            )
+            raise
 
         file_path = file_data["result"]["file_path"]
 
+        print(
+            "TELEGRAM FILE PATH:",
+            file_path
+        )
+
+    
         file_url = (
             f"https://api.telegram.org/file/bot"
             f"{BOT_TOKEN}/{file_path}"
@@ -1110,26 +1134,61 @@ async def transcribe_voice(file_id: str) -> str:
 
         audio_response = await client.get(file_url)
 
+        print(
+            "TELEGRAM AUDIO STATUS:",
+            audio_response.status_code
+        )
+
+        print(
+            "TELEGRAM AUDIO CONTENT TYPE:",
+            audio_response.headers.get("content-type")
+        )
+
         audio_response.raise_for_status()
 
         audio_bytes = audio_response.content
+
+    print(
+        "VOICE FILE SIZE:",
+        len(audio_bytes)
+    )
 
     if not audio_bytes:
         raise ValueError(
             "Downloaded voice file was empty"
         )
 
-    transcription = openai_client.audio.transcriptions.create(
-        model="whisper-1",
-        file=(
-            "voice.ogg",
-            audio_bytes,
-            "audio/ogg"
+    
+    try:
+
+        print(
+            "OPENAI TRANSCRIPTION STARTING"
         )
-    )
+
+        transcription = openai_client.audio.transcriptions.create(
+            model="whisper-1",
+            file=(
+                "voice.ogg",
+                audio_bytes,
+                "audio/ogg"
+            )
+        )
+
+        print(
+            "OPENAI TRANSCRIPTION SUCCESS:",
+            transcription.text
+        )
+
+    except Exception as e:
+
+        print(
+            "OPENAI TRANSCRIPTION ERROR:",
+            repr(e)
+        )
+
+        raise
 
     return transcription.text
-
 
 async def send_message(
     chat_id: int,
