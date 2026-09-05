@@ -500,6 +500,33 @@ async def webhook(request: Request):
 
             return {"ok": True}
 
+        # ---------------------------------
+        # /CURRENT COMMAND
+        # ---------------------------------
+
+        if text and text.strip().lower() == "/current":
+
+            try:
+
+                await handle_current_command(
+                    owner_chat_id=owner_chat_id,
+                    business=business
+                )
+
+            except Exception as e:
+
+                print(
+                    "CURRENT COMMAND ERROR:",
+                    repr(e)
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    "Sorry, something went wrong while checking the current customer."
+                )
+
+            return {"ok": True}
+
 
         try:
 
@@ -1311,6 +1338,94 @@ def set_owner_selected_conversation(
     rows = response.data or []
 
     return rows[0] if rows else None
+
+def get_owner_selected_conversation(
+    business_id: str,
+    owner_chat_id: int
+):
+    owner_session = get_owner_session(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    if not owner_session:
+        return None
+
+    conversation_id = owner_session.get(
+        "selected_conversation_id"
+    )
+
+    if not conversation_id:
+        return None
+
+    return get_conversation_by_id(
+        conversation_id
+    )
+
+async def handle_current_command(
+    owner_chat_id: int,
+    business: dict
+):
+    business_id = business["id"]
+
+    conversation = get_owner_selected_conversation(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    if not conversation:
+
+        await send_message(
+            owner_chat_id,
+            "🎯 No customer is currently selected.\n\n"
+            "Use /customers to select a customer."
+        )
+
+        return
+
+    customer_id = conversation.get(
+        "customer_id"
+    )
+
+    if not customer_id:
+
+        await send_message(
+            owner_chat_id,
+            "I couldn't determine the currently selected customer."
+        )
+
+        return
+
+    customer = get_customer_by_id(
+        customer_id
+    )
+
+    if not customer:
+
+        await send_message(
+            owner_chat_id,
+            "The currently selected customer could not be found."
+        )
+
+        return
+
+    customer_name = (
+        customer.get("name")
+        or "Customer"
+    )
+
+    customer_language = (
+        customer.get("language")
+        or "Unknown"
+    )
+
+    await send_message(
+        owner_chat_id,
+        f"🎯 Current Customer\n\n"
+        f"Customer: {customer_name}\n"
+        f"Language: {customer_language}\n\n"
+        f"Your messages are currently being sent to this customer."
+    )
 
 def save_usage_event(
     business_id: str,
