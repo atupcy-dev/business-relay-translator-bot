@@ -827,68 +827,103 @@ async def handle_owner_message(
     business_id = business["id"]
     was_voice = voice is not None
 
+    
     conversation = get_owner_active_conversation(
         business_id=business_id
     )
 
     if not conversation:
+
         await send_message(
             owner_chat_id,
             "There is no active customer conversation yet."
         )
+
         return
 
     conversation_id = conversation["id"]
     customer_id = conversation["customer_id"]
 
-    customer = get_customer_by_id(customer_id)
+
+    customer = get_customer_by_id(
+        customer_id
+    )
 
     if not customer:
+
         await send_message(
             owner_chat_id,
             "The customer for this conversation could not be found."
         )
+
         return
 
-    customer_chat_id = int(customer["telegram_chat_id"])
+    customer_chat_id = int(
+        customer["telegram_chat_id"]
+    )
 
     customer_language = get_latest_customer_language(
         conversation_id
     )
 
-    if voice:
-        try:
-            credit_check = check_bridge_credits(
-                business_id=business_id,
-                credits=3
-            )
 
-            if not credit_check.get("has_enough_credits", False):
-                await send_message(
-                    owner_chat_id,
-                    "Your Atupcy Bridge usage limit has been reached. Please contact Atupcy LTD to continue."
-                )
-                return
+    if not text and not voice:
+        return
 
-        except Exception as e:
-            print("OWNER VOICE CREDIT CHECK FAILED:", e)
+
+    required_credits = 4 if voice else 1
+
+    try:
+
+        credit_check = check_bridge_credits(
+            business_id=business_id,
+            credits=required_credits
+        )
+
+        if not credit_check.get(
+            "has_enough_credits",
+            False
+        ):
 
             await send_message(
                 owner_chat_id,
-                "I'm sorry, but I can't process this voice message right now."
+                "Your Atupcy Bridge usage limit has been reached. Please contact Atupcy LTD to continue."
             )
+
             return
 
-        text = await transcribe_voice(voice["file_id"])
+    except Exception as e:
+
+        print(
+            "OWNER CREDIT CHECK FAILED:",
+            repr(e)
+        )
+
+        await send_message(
+            owner_chat_id,
+            "I'm sorry, but I can't process this message right now. Please try again later."
+        )
+
+        return
+
+
+    if voice:
+
+        text = await transcribe_voice(
+            voice["file_id"]
+        )
 
         if not text or not text.strip():
+
             await send_message(
                 owner_chat_id,
                 "I couldn't make out that voice note. Please try again."
             )
+
             return
 
         try:
+
             consume_bridge_credits(
                 business_id=business_id,
                 credits=3,
@@ -897,14 +932,23 @@ async def handle_owner_message(
                 channel="telegram",
                 description="Owner voice message transcription"
             )
+
         except Exception as e:
-            print("OWNER VOICE CREDIT CONSUMPTION FAILED:", e)
+
+            print(
+                "OWNER VOICE CREDIT CONSUMPTION FAILED:",
+                repr(e)
+            )
+
             return
+
 
     if not text or not text.strip():
         return
 
+
     try:
+
         consume_bridge_credits(
             business_id=business_id,
             credits=1,
@@ -913,13 +957,19 @@ async def handle_owner_message(
             channel="telegram",
             description="Owner message translation"
         )
+
     except Exception as e:
-        print("OWNER TRANSLATION CREDIT CHECK FAILED:", e)
+
+        print(
+            "OWNER TRANSLATION CREDIT CONSUMPTION FAILED:",
+            repr(e)
+        )
 
         await send_message(
             owner_chat_id,
             "I'm sorry, but I can't process this message right now. Please try again later."
         )
+
         return
 
     result = translate(
@@ -929,7 +979,9 @@ async def handle_owner_message(
 
     translated_text = result["translated_text"]
 
+
     if was_voice:
+
         save_usage_event(
             business_id=business_id,
             conversation_id=conversation_id,
@@ -954,6 +1006,7 @@ async def handle_owner_message(
         language=customer_language
     )
 
+
     save_bridge_message(
         conversation_id=conversation_id,
         sender_type="owner",
@@ -963,12 +1016,16 @@ async def handle_owner_message(
         response_source="ai"
     )
 
-    update_conversation_timestamp(conversation_id)
+    update_conversation_timestamp(
+        conversation_id
+    )
+
 
     await send_message(
         customer_chat_id,
         translated_text
     )
+
 
     await send_message(
         owner_chat_id,
