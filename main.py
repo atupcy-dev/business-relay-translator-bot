@@ -551,6 +551,29 @@ async def webhook(request: Request):
             return {"ok": True}
 
 
+        if text and text.strip().lower() == "/history":
+
+            try:
+
+                await handle_history_command(
+                    owner_chat_id=owner_chat_id,
+                    business=business
+                )
+
+            except Exception as e:
+
+                print(
+                    "HISTORY COMMAND ERROR:",
+                    repr(e)
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    "Sorry, something went wrong while loading the conversation history."
+                )
+
+            return {"ok": True}
+
         try:
 
             await handle_owner_message(
@@ -1534,6 +1557,117 @@ async def handle_close_command(
         f"✅ Conversation closed\n\n"
         f"Customer: {customer_name}\n\n"
         f"Use /customers to select another customer."
+    )
+
+async def handle_history_command(
+    owner_chat_id: int,
+    business: dict
+):
+    business_id = business["id"]
+
+    conversation = get_owner_selected_conversation(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    if not conversation:
+
+        await send_message(
+            owner_chat_id,
+            "No customer is currently selected.\n\n"
+            "Use /customers to select a customer."
+        )
+
+        return
+
+    if conversation.get("status") != "active":
+
+        clear_owner_selected_conversation(
+            business_id=business_id,
+            owner_chat_id=owner_chat_id
+        )
+
+        await send_message(
+            owner_chat_id,
+            "The selected conversation is closed.\n\n"
+            "Use /customers to select a customer."
+        )
+
+        return
+
+    customer_id = conversation.get(
+        "customer_id"
+    )
+
+    customer = None
+
+    if customer_id:
+        customer = get_customer_by_id(
+            customer_id
+        )
+
+    customer_name = (
+        customer.get("name")
+        if customer
+        else "Customer"
+    )
+
+    messages = get_conversation_messages(
+        conversation["id"]
+    )
+
+    if not messages:
+
+        await send_message(
+            owner_chat_id,
+            f"💬 Conversation History\n\n"
+            f"Customer: {customer_name}\n\n"
+            f"No messages yet."
+        )
+
+        return
+
+    lines = [
+        "💬 Conversation History",
+        "",
+        f"Customer: {customer_name}",
+        ""
+    ]
+
+    for message in messages:
+
+        sender_type = message.get(
+            "sender_type"
+        )
+
+        translated_text = (
+            message.get("translated_text")
+            or message.get("original_text")
+            or ""
+        )
+
+        if not translated_text:
+            continue
+
+        if sender_type == "customer":
+            label = "Customer"
+
+        elif sender_type == "owner":
+            label = "You"
+
+        else:
+            label = "Message"
+
+        lines.append(
+            f"{label}:\n"
+            f"{translated_text}\n"
+        )
+
+    history_text = "\n".join(lines)
+
+    await send_message(
+        owner_chat_id,
+        history_text
     )
 
 def save_usage_event(
