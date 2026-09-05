@@ -500,9 +500,7 @@ async def webhook(request: Request):
 
             return {"ok": True}
 
-        # ---------------------------------
         # /CURRENT COMMAND
-        # ---------------------------------
 
         if text and text.strip().lower() == "/current":
 
@@ -523,6 +521,31 @@ async def webhook(request: Request):
                 await send_message(
                     owner_chat_id,
                     "Sorry, something went wrong while checking the current customer."
+                )
+
+            return {"ok": True}
+
+        # /CLOSE COMMAND
+
+        if text and text.strip().lower() == "/close":
+
+            try:
+
+                await handle_close_command(
+                    owner_chat_id=owner_chat_id,
+                    business=business
+                )
+
+            except Exception as e:
+
+                print(
+                    "CLOSE COMMAND ERROR:",
+                    repr(e)
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    "Sorry, something went wrong while closing the conversation."
                 )
 
             return {"ok": True}
@@ -1425,6 +1448,56 @@ async def handle_current_command(
         f"Customer: {customer_name}\n"
         f"Language: {customer_language}\n\n"
         f"Your messages are currently being sent to this customer."
+    )
+
+async def handle_close_command(
+    owner_chat_id: int,
+    business: dict
+):
+    business_id = business["id"]
+
+    conversation = get_owner_selected_conversation(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    if not conversation:
+
+        await send_message(
+            owner_chat_id,
+            "There is no currently selected customer conversation to close."
+        )
+
+        return
+
+    conversation_id = conversation["id"]
+
+    customer_id = conversation.get(
+        "customer_id"
+    )
+
+    customer = None
+
+    if customer_id:
+        customer = get_customer_by_id(
+            customer_id
+        )
+
+    customer_name = (
+        customer.get("name")
+        if customer
+        else "Customer"
+    )
+
+    close_conversation(
+        conversation_id
+    )
+
+    await send_message(
+        owner_chat_id,
+        f"✅ Conversation closed\n\n"
+        f"Customer: {customer_name}\n\n"
+        f"Use /customers to select another customer."
     )
 
 def save_usage_event(
