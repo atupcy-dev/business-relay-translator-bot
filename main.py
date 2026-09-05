@@ -463,11 +463,12 @@ async def handle_customer_message(
 
     print("ATUPCY BRIDGE CONVERSATION:", conversation)
 
-    print("CREDIT DEBUG: customer/conversation ready")
-    print("CREDIT DEBUG: business_id =", business_id)
-    print("CREDIT DEBUG: conversation_id =", conversation_id)
+    # ---------------------------------
+    # VOICE TRANSCRIPTION
+    # ---------------------------------
 
     if voice:
+
         try:
             credit_check = check_bridge_credits(
                 business_id=business_id,
@@ -484,22 +485,24 @@ async def handle_customer_message(
         except Exception as e:
             print("VOICE CREDIT CHECK FAILED:", repr(e))
 
-        await send_message(
-            customer_chat_id,
-            "I'm sorry, but I can't process voice messages right now. Please try again later."
+            await send_message(
+                customer_chat_id,
+                "I'm sorry, but I can't process voice messages right now. Please try again later."
+            )
+            return
+
+        text = await transcribe_voice(
+            voice["file_id"]
         )
-        return
 
-    text = await transcribe_voice(voice["file_id"])
+        if not text or not text.strip():
+            await send_message(
+                customer_chat_id,
+                "I couldn't make out any speech in that voice note. Please try again."
+            )
+            return
 
-    if not text or not text.strip():
-        await send_message(
-            customer_chat_id,
-            "I couldn't make out any speech in that voice note. Please try again."
-        )
-        return
-
-    try:
+        try:
             consume_bridge_credits(
                 business_id=business_id,
                 credits=3,
@@ -508,12 +511,24 @@ async def handle_customer_message(
                 channel="telegram",
                 description="Voice message transcription"
             )
-    except Exception as e:
-            print("VOICE CREDIT CONSUMPTION FAILED:", e)
+
+        except Exception as e:
+            print(
+                "VOICE CREDIT CONSUMPTION FAILED:",
+                repr(e)
+            )
             return
+
+    # ---------------------------------
+    # EMPTY MESSAGE CHECK
+    # ---------------------------------
 
     if not text or not text.strip():
         return
+
+    # ---------------------------------
+    # CUSTOMER MESSAGE TRANSLATION
+    # ---------------------------------
 
     try:
         consume_bridge_credits(
@@ -524,15 +539,19 @@ async def handle_customer_message(
             channel="telegram",
             description="Customer message translation"
         )
+
     except Exception as e:
-        print("TRANSLATION CREDIT CHECK FAILED:", repr(e))
+        print(
+            "TRANSLATION CREDIT CHECK FAILED:",
+            repr(e)
+        )
 
         await send_message(
             customer_chat_id,
             "I'm sorry, but I can't process your message right now. Please try again later."
         )
-        return 
-    
+        return
+
     result = translate(
         text=text,
         target_language=owner_language
@@ -540,6 +559,10 @@ async def handle_customer_message(
 
     source_language = result["source_language"]
     translated_text = result["translated_text"]
+
+    # ---------------------------------
+    # USAGE TRACKING
+    # ---------------------------------
 
     if was_voice:
         save_usage_event(
@@ -566,15 +589,27 @@ async def handle_customer_message(
         language=source_language
     )
 
-    supabase.table(BRIDGE_CUSTOMERS_TABLE).update(
-    {
-        "language": source_language,
-        "last_seen_at": datetime.now(timezone.utc).isoformat()
-    }
-).eq(
-    "id",
-    customer_id
-).execute()
+    # ---------------------------------
+    # UPDATE CUSTOMER
+    # ---------------------------------
+
+    supabase.table(
+        BRIDGE_CUSTOMERS_TABLE
+    ).update(
+        {
+            "language": source_language,
+            "last_seen_at": datetime.now(
+                timezone.utc
+            ).isoformat()
+        }
+    ).eq(
+        "id",
+        customer_id
+    ).execute()
+
+    # ---------------------------------
+    # SAVE CUSTOMER MESSAGE
+    # ---------------------------------
 
     save_bridge_message(
         conversation_id=conversation_id,
@@ -585,9 +620,18 @@ async def handle_customer_message(
         response_source="ai"
     )
 
-    update_conversation_timestamp(conversation_id)
+    update_conversation_timestamp(
+        conversation_id
+    )
 
-    customer_display_name = customer.get("name") or "Customer"
+    customer_display_name = (
+        customer.get("name")
+        or "Customer"
+    )
+
+    # ---------------------------------
+    # SEND TO OWNER
+    # ---------------------------------
 
     owner_message = (
         f"📩 New customer message\n\n"
@@ -601,6 +645,9 @@ async def handle_customer_message(
         owner_message
     )
 
+    # ---------------------------------
+    # AI SUPPORT
+    # ---------------------------------
 
     try:
         consume_bridge_credits(
@@ -611,8 +658,12 @@ async def handle_customer_message(
             channel="telegram",
             description="AI customer support"
         )
+
     except Exception as e:
-        print("AI SUPPORT CREDIT CHECK FAILED:", e)
+        print(
+            "AI SUPPORT CREDIT CHECK FAILED:",
+            repr(e)
+        )
 
         await send_message(
             customer_chat_id,
@@ -624,11 +675,16 @@ async def handle_customer_message(
         conversation_id=conversation_id,
         message=text
     )
-        
-    ai_reply = support_result.get("reply")
-    escalated = bool(support_result.get("escalated", False))
 
-        
+    ai_reply = support_result.get("reply")
+
+    escalated = bool(
+        support_result.get(
+            "escalated",
+            False
+        )
+    )
+
     save_usage_event(
         business_id=business_id,
         conversation_id=conversation_id,
@@ -637,8 +693,10 @@ async def handle_customer_message(
         language=source_language
     )
 
+    # ---------------------------------
+    # TRANSLATE AI RESPONSE
+    # ---------------------------------
 
-    
     if ai_reply and ai_reply.strip():
 
         try:
@@ -650,8 +708,12 @@ async def handle_customer_message(
                 channel="telegram",
                 description="AI response translation"
             )
+
         except Exception as e:
-            print("AI RESPONSE TRANSLATION CREDIT CHECK FAILED:", e)
+            print(
+                "AI RESPONSE TRANSLATION CREDIT CHECK FAILED:",
+                repr(e)
+            )
 
             await send_message(
                 customer_chat_id,
@@ -664,7 +726,9 @@ async def handle_customer_message(
             target_language=source_language
         )
 
-        translated_ai_reply = ai_translation_result["translated_text"]
+        translated_ai_reply = (
+            ai_translation_result["translated_text"]
+        )
 
         save_bridge_message(
             conversation_id=conversation_id,
@@ -680,7 +744,12 @@ async def handle_customer_message(
             translated_ai_reply
         )
 
+    # ---------------------------------
+    # HUMAN ESCALATION
+    # ---------------------------------
+
     if escalated:
+
         await send_message(
             owner_chat_id,
             f"🚨 AI Support Escalation\n\n"
@@ -688,7 +757,7 @@ async def handle_customer_message(
             f"Language: {source_language}\n\n"
             f"The AI support agent has flagged this conversation for human review."
         )
-
+        
 def get_conversation_by_id(conversation_id: str):
     """
     Get one Atupcy Bridge conversation by database ID.
