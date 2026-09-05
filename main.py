@@ -1014,34 +1014,35 @@ async def handle_owner_message(
     business_id = business["id"]
     was_voice = voice is not None
 
-    
 
-    owner_session = get_owner_session(
+    conversation = get_owner_selected_conversation(
         business_id=business_id,
         owner_chat_id=owner_chat_id
     )
 
-    conversation = None
-
-    if owner_session:
-
-        selected_conversation_id = (
-            owner_session.get(
-                "selected_conversation_id"
-            )
-        )
-
-    if selected_conversation_id:
-
-        conversation = get_conversation_by_id(
-            selected_conversation_id
-        )
-
-
     if not conversation:
-        conversation = get_owner_active_conversation(
-            business_id=business_id
+
+        await send_message(
+            owner_chat_id,
+            "No customer is currently selected.\n\n"
+            "Use /customers to select a customer before sending a message."
         )
+
+        return
+
+    if conversation.get("status") != "active":
+        clear_owner_selected_conversation(
+            business_id=business_id,
+            owner_chat_id=owner_chat_id
+        )
+
+        await send_message(
+            owner_chat_id,
+            "The selected conversation is no longer active.\n\n"
+            "Use /customers to select a customer."
+        )
+
+        return
 
     if not conversation:
 
@@ -1362,6 +1363,36 @@ def set_owner_selected_conversation(
 
     return rows[0] if rows else None
 
+def clear_owner_selected_conversation(
+    business_id: str,
+    owner_chat_id: int
+):
+    existing = get_owner_session(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
+    )
+
+    if not existing:
+        return
+
+    (
+        supabase
+        .table("atupcy_bridge_owner_sessions")
+        .update(
+            {
+                "selected_conversation_id": None,
+                "updated_at": datetime.now(
+                    timezone.utc
+                ).isoformat()
+            }
+        )
+        .eq(
+            "id",
+            existing["id"]
+        )
+        .execute()
+    )
+
 def get_owner_selected_conversation(
     business_id: str,
     owner_chat_id: int
@@ -1491,6 +1522,11 @@ async def handle_close_command(
 
     close_conversation(
         conversation_id
+    )
+
+    clear_owner_selected_conversation(
+        business_id=business_id,
+        owner_chat_id=owner_chat_id
     )
 
     await send_message(
