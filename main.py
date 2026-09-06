@@ -789,14 +789,21 @@ async def handle_customer_message(
         conversation
     )
 
-
     if not text and not voice:
         return
+
+    # ---------------------------------
+    # CREDIT REQUIREMENT
+    # ---------------------------------
 
     if handling_mode == "human":
         required_credits = 4 if voice else 1
     else:
         required_credits = 7 if voice else 4
+
+    # ---------------------------------
+    # CHECK CREDITS
+    # ---------------------------------
 
     try:
 
@@ -810,9 +817,47 @@ async def handle_customer_message(
             False
         ):
 
+            # -----------------------------
+            # CUSTOMER-FACING MESSAGE
+            # -----------------------------
+
             await send_message(
                 customer_chat_id,
-                "Atupcy Bridge has reached its available usage limit. Please contact Atupcy LTD to continue."
+                "We're temporarily unable to process "
+                "your request. Please try again later."
+            )
+
+            # -----------------------------
+            # OWNER-FACING NOTIFICATION
+            # -----------------------------
+
+            customer_language_for_owner = (
+                customer.get("language")
+                or "Unknown"
+            )
+
+            owner_customer_message = (
+                f"📩 Customer Message\n\n"
+                f"Customer: {customer_name}\n"
+                f"Language: {customer_language_for_owner}\n\n"
+                f"{text or '🎙️ Voice message'}"
+            )
+
+            await send_message(
+                owner_chat_id,
+                owner_customer_message
+            )
+
+            await send_message(
+                owner_chat_id,
+                f"🚨 Bridge Usage Limit Reached\n\n"
+                f"Customer: {customer_name}\n"
+                f"Language: {customer_language_for_owner}\n\n"
+                f"The customer’s message could not be "
+                f"processed because your available Bridge "
+                f"usage has been exhausted.\n\n"
+                f"Please handle this customer manually or "
+                f"contact Atupcy LTD to continue."
             )
 
             return
@@ -826,11 +871,15 @@ async def handle_customer_message(
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I can't process your message right now. Please try again later."
+            "I'm sorry, but I can't process your message "
+            "right now. Please try again later."
         )
 
         return
 
+    # ---------------------------------
+    # VOICE TRANSCRIPTION
+    # ---------------------------------
 
     if voice:
 
@@ -842,7 +891,8 @@ async def handle_customer_message(
 
             await send_message(
                 customer_chat_id,
-                "I couldn't make out any speech in that voice note. Please try again."
+                "I couldn't make out any speech in "
+                "that voice note. Please try again."
             )
 
             return
@@ -865,12 +915,24 @@ async def handle_customer_message(
                 repr(e)
             )
 
+            await send_message(
+                customer_chat_id,
+                "I'm sorry, but I can't process your "
+                "voice message right now. Please try again later."
+            )
+
             return
 
+    # ---------------------------------
+    # VALIDATE TEXT
+    # ---------------------------------
 
     if not text or not text.strip():
         return
 
+    # ---------------------------------
+    # TRANSLATE CUSTOMER MESSAGE
+    # ---------------------------------
 
     try:
 
@@ -886,13 +948,15 @@ async def handle_customer_message(
     except Exception as e:
 
         print(
-            "CUSTOMER TRANSLATION CREDIT CONSUMPTION FAILED:",
+            "CUSTOMER TRANSLATION CREDIT "
+            "CONSUMPTION FAILED:",
             repr(e)
         )
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I can't process your message right now. Please try again later."
+            "I'm sorry, but I can't process your "
+            "message right now. Please try again later."
         )
 
         return
@@ -905,6 +969,9 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
+    # ---------------------------------
+    # USAGE EVENTS
+    # ---------------------------------
 
     if was_voice:
 
@@ -932,6 +999,9 @@ async def handle_customer_message(
         language=source_language
     )
 
+    # ---------------------------------
+    # UPDATE CUSTOMER LANGUAGE
+    # ---------------------------------
 
     supabase.table(
         BRIDGE_CUSTOMERS_TABLE
@@ -947,6 +1017,9 @@ async def handle_customer_message(
         customer_id
     ).execute()
 
+    # ---------------------------------
+    # SAVE CUSTOMER MESSAGE
+    # ---------------------------------
 
     save_bridge_message(
         conversation_id=conversation_id,
@@ -954,7 +1027,11 @@ async def handle_customer_message(
         original_text=text,
         translated_text=translated_text,
         language=source_language,
-        response_source="ai"
+        response_source=(
+            "human"
+            if handling_mode == "human"
+            else "ai"
+        )
     )
 
     update_conversation_timestamp(
@@ -966,6 +1043,9 @@ async def handle_customer_message(
         or "Customer"
     )
 
+    # ---------------------------------
+    # SEND CUSTOMER MESSAGE TO OWNER
+    # ---------------------------------
 
     owner_message = (
         f"📩 New customer message\n\n"
@@ -979,16 +1059,25 @@ async def handle_customer_message(
         owner_message
     )
 
+    # ---------------------------------
+    # HUMAN MODE
+    # ---------------------------------
+
     if handling_mode == "human":
 
         await send_message(
             owner_chat_id,
             "👤 Human mode\n\n"
-            "This customer is currently being handled by you.\n"
+            "This customer is currently being handled "
+            "by you.\n"
             "Reply to the customer directly."
         )
 
         return
+
+    # ---------------------------------
+    # AI SUPPORT
+    # ---------------------------------
 
     try:
 
@@ -1010,7 +1099,20 @@ async def handle_customer_message(
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I'm unable to process your request right now. Please try again later."
+            "I'm sorry, but I'm unable to process "
+            "your request right now. Please try again later."
+        )
+
+        await send_message(
+            owner_chat_id,
+            f"🚨 Bridge Usage Limit Reached\n\n"
+            f"Customer: {customer_display_name}\n"
+            f"Language: {source_language}\n\n"
+            f"The customer’s message could not be "
+            f"processed because your available Bridge "
+            f"usage has been exhausted.\n\n"
+            f"Please handle this customer manually or "
+            f"contact Atupcy LTD to continue."
         )
 
         return
@@ -1029,6 +1131,10 @@ async def handle_customer_message(
         )
     )
 
+    # ---------------------------------
+    # AI SUPPORT USAGE EVENT
+    # ---------------------------------
+
     save_usage_event(
         business_id=business_id,
         conversation_id=conversation_id,
@@ -1037,6 +1143,9 @@ async def handle_customer_message(
         language=source_language
     )
 
+    # ---------------------------------
+    # AI RESPONSE
+    # ---------------------------------
 
     if ai_reply and ai_reply.strip():
 
@@ -1054,13 +1163,15 @@ async def handle_customer_message(
         except Exception as e:
 
             print(
-                "AI RESPONSE TRANSLATION CREDIT CONSUMPTION FAILED:",
+                "AI RESPONSE TRANSLATION CREDIT "
+                "CONSUMPTION FAILED:",
                 repr(e)
             )
 
             await send_message(
                 customer_chat_id,
-                "I'm sorry, but I couldn't complete the response right now. Please try again later."
+                "I'm sorry, but I couldn't complete "
+                "the response right now. Please try again later."
             )
 
             return
@@ -1088,6 +1199,9 @@ async def handle_customer_message(
             translated_ai_reply
         )
 
+    # ---------------------------------
+    # AI ESCALATION
+    # ---------------------------------
 
     if escalated:
 
@@ -1095,34 +1209,38 @@ async def handle_customer_message(
             conversation_id=conversation_id,
             handoff_status="offered",
             escalation_reason=(
-                "AI support agent flagged the conversation "
-                "for human review."
+                "AI support agent flagged the "
+                "conversation for human review."
             )
-        ) 
+        )
 
-    reply_markup = {
-        "inline_keyboard": [
-            [
-                {
-                    "text": f"💬 Reply to {customer_display_name}",
-                    "callback_data": (
-                        f"human_reply:{conversation_id}"
-                    )
-                }
+        reply_markup = {
+            "inline_keyboard": [
+                [
+                    {
+                        "text": (
+                            f"💬 Reply to "
+                            f"{customer_display_name}"
+                        ),
+                        "callback_data": (
+                            f"human_reply:"
+                            f"{conversation_id}"
+                        )
+                    }
+                ]
             ]
-        ]
-    }
+        }
 
-    await send_message(
-        owner_chat_id,
-        f"🚨 AI Support Escalation\n\n"
-        f"Customer: {customer_display_name}\n"
-        f"Language: {source_language}\n\n"
-        f"The AI support agent has flagged this conversation "
-        f"for human review.\n\n"
-        f"Tap below to take over this conversation.",
-        reply_markup=reply_markup
-    )
+        await send_message(
+            owner_chat_id,
+            f"🚨 AI Support Escalation\n\n"
+            f"Customer: {customer_display_name}\n"
+            f"Language: {source_language}\n\n"
+            f"The AI support agent has flagged this "
+            f"conversation for human review.\n\n"
+            f"Tap below to take over this conversation.",
+            reply_markup=reply_markup
+        )
 
 def get_conversation_by_id(conversation_id: str):
     """
