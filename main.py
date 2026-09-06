@@ -336,18 +336,23 @@ def is_telegram_update_processed(update_id: int) -> bool:
     return bool(rows)
 
 
-def mark_telegram_update_processed(update_id: int):
+def mark_telegram_update_processed(
+    update_id: int
+):
 
-    (
+    response = (
         supabase
         .table("atupcy_bridge_processed_updates")
-        .insert(
+        .upsert(
             {
                 "update_id": update_id
-            }
+            },
+            on_conflict="update_id"
         )
         .execute()
     )
+
+    return response.data or []
 
 @app.post("/webhook")
 async def webhook(request: Request):
