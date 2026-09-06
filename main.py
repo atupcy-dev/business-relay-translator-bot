@@ -320,39 +320,53 @@ def get_conversation_messages(conversation_id: str):
 
     return response.data or []
 
-def is_telegram_update_processed(update_id: int) -> bool:
-
-    response = (
-        supabase
-        .table("atupcy_bridge_processed_updates")
-        .select("update_id")
-        .eq("update_id", update_id)
-        .limit(1)
-        .execute()
-    )
-
-    rows = response.data or []
-
-    return bool(rows)
-
-
-def mark_telegram_update_processed(
+def claim_telegram_update(
     update_id: int
-):
+) -> bool:
 
-    response = (
-        supabase
-        .table("atupcy_bridge_processed_updates")
-        .upsert(
-            {
-                "update_id": update_id
-            },
-            on_conflict="update_id"
+    try:
+
+        response = (
+            supabase
+            .table(
+                "atupcy_bridge_processed_updates"
+            )
+            .insert(
+                {
+                    "update_id": update_id
+                }
+            )
+            .execute()
         )
-        .execute()
-    )
 
-    return response.data or []
+        return True
+
+    except Exception as e:
+
+        error_message = str(e)
+
+        # Duplicate primary-key means
+        # another request already claimed it.
+        if (
+            "duplicate key" in error_message.lower()
+            or "23505" in error_message
+        ):
+
+            print(
+                "DUPLICATE TELEGRAM UPDATE:",
+                update_id
+            )
+
+            return False
+
+        # Any other database error should
+        # not be silently treated as duplicate.
+        print(
+            "IDEMPOTENCY CLAIM FAILED:",
+            repr(e)
+        )
+
+        raise
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -363,40 +377,19 @@ async def webhook(request: Request):
 
     update_id = update.get("update_id")
 
-    async def mark_update_processed():
-        if update_id is None:
-            return
-
-        try:
-            mark_telegram_update_processed(
-                update_id
-            )
-
-        except Exception as e:
-
-            print(
-                "IDEMPOTENCY MARK FAILED:",
-                repr(e)
-            )
-
-
     if update_id is not None:
 
-
         try:
 
-            if is_telegram_update_processed(
-
+            claimed = claim_telegram_update(
                 update_id
+            )
 
-            ):
+            if not claimed:
 
                 print(
-
                     "DUPLICATE TELEGRAM UPDATE:",
-
                     update_id
-
                 )
 
                 return {"ok": True}
@@ -404,12 +397,11 @@ async def webhook(request: Request):
         except Exception as e:
 
             print(
-
-                "IDEMPOTENCY CHECK FAILED:",
-
+                "IDEMPOTENCY CLAIM FAILED:",
                 repr(e)
-
             )
+
+            return {"ok": True}
 
 
     callback_query = update.get("callback_query")
@@ -526,7 +518,6 @@ async def webhook(request: Request):
                 f"to this customer."
             )
 
-            await mark_update_processed()
 
             return {"ok": True}
 
@@ -601,7 +592,6 @@ async def webhook(request: Request):
                 f"Your next message will be sent to this customer."
             )
 
-            await mark_update_processed()
 
             return {"ok": True}
 
@@ -641,7 +631,6 @@ async def webhook(request: Request):
             "Atupcy Bridge is not currently connected to an active business."
         )
 
-        await mark_update_processed()
 
         return {"ok": True}
 
@@ -778,7 +767,6 @@ async def webhook(request: Request):
                 voice=voice
             )
 
-            await mark_update_processed()
 
         except Exception as e:
 
@@ -805,8 +793,7 @@ async def webhook(request: Request):
             voice=voice
         )
 
-        await mark_update_processed()
-
+        
     except Exception as e:
 
         print(
