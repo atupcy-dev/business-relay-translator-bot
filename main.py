@@ -320,12 +320,91 @@ def get_conversation_messages(conversation_id: str):
 
     return response.data or []
 
+def is_telegram_update_processed(update_id: int) -> bool:
+
+    response = (
+        supabase
+        .table("atupcy_bridge_processed_updates")
+        .select("update_id")
+        .eq("update_id", update_id)
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return bool(rows)
+
+
+def mark_telegram_update_processed(update_id: int):
+
+    (
+        supabase
+        .table("atupcy_bridge_processed_updates")
+        .insert(
+            {
+                "update_id": update_id
+            }
+        )
+        .execute()
+    )
+
 @app.post("/webhook")
 async def webhook(request: Request):
 
     update = await request.json()
 
     print("TELEGRAM UPDATE:", update)
+
+    update_id = update.get("update_id")
+
+    async def mark_update_processed():
+        if update_id is None:
+            return
+
+        try:
+            mark_telegram_update_processed(
+                update_id
+            )
+
+        except Exception as e:
+
+            print(
+                "IDEMPOTENCY MARK FAILED:",
+                repr(e)
+            )
+
+
+    if update_id is not None:
+
+
+        try:
+
+            if is_telegram_update_processed(
+
+                update_id
+
+            ):
+
+                print(
+
+                    "DUPLICATE TELEGRAM UPDATE:",
+
+                    update_id
+
+                )
+
+                return {"ok": True}
+
+        except Exception as e:
+
+            print(
+
+                "IDEMPOTENCY CHECK FAILED:",
+
+                repr(e)
+
+            )
 
 
     callback_query = update.get("callback_query")
@@ -442,6 +521,8 @@ async def webhook(request: Request):
                 f"to this customer."
             )
 
+            await mark_update_processed()
+
             return {"ok": True}
 
 
@@ -515,6 +596,8 @@ async def webhook(request: Request):
                 f"Your next message will be sent to this customer."
             )
 
+            await mark_update_processed()
+
             return {"ok": True}
 
         return {"ok": True}
@@ -552,6 +635,8 @@ async def webhook(request: Request):
             chat_id,
             "Atupcy Bridge is not currently connected to an active business."
         )
+
+        await mark_update_processed()
 
         return {"ok": True}
 
@@ -688,6 +773,8 @@ async def webhook(request: Request):
                 voice=voice
             )
 
+            await mark_update_processed()
+
         except Exception as e:
 
             print(
@@ -712,6 +799,8 @@ async def webhook(request: Request):
             text=text,
             voice=voice
         )
+
+        await mark_update_processed()
 
     except Exception as e:
 
@@ -792,18 +881,12 @@ async def handle_customer_message(
     if not text and not voice:
         return
 
-    # ---------------------------------
-    # CREDIT REQUIREMENT
-    # ---------------------------------
 
     if handling_mode == "human":
         required_credits = 4 if voice else 1
     else:
         required_credits = 7 if voice else 4
 
-    # ---------------------------------
-    # CHECK CREDITS
-    # ---------------------------------
 
     try:
 
@@ -817,9 +900,6 @@ async def handle_customer_message(
             False
         ):
 
-            # -----------------------------
-            # CUSTOMER-FACING MESSAGE
-            # -----------------------------
 
             await send_message(
                 customer_chat_id,
@@ -827,9 +907,6 @@ async def handle_customer_message(
                 "your request. Please try again later."
             )
 
-            # -----------------------------
-            # OWNER-FACING NOTIFICATION
-            # -----------------------------
 
             customer_language_for_owner = (
                 customer.get("language")
@@ -877,9 +954,6 @@ async def handle_customer_message(
 
         return
 
-    # ---------------------------------
-    # VOICE TRANSCRIPTION
-    # ---------------------------------
 
     if voice:
 
@@ -923,16 +997,10 @@ async def handle_customer_message(
 
             return
 
-    # ---------------------------------
-    # VALIDATE TEXT
-    # ---------------------------------
 
     if not text or not text.strip():
         return
 
-    # ---------------------------------
-    # TRANSLATE CUSTOMER MESSAGE
-    # ---------------------------------
 
     try:
 
@@ -969,9 +1037,6 @@ async def handle_customer_message(
     source_language = result["source_language"]
     translated_text = result["translated_text"]
 
-    # ---------------------------------
-    # USAGE EVENTS
-    # ---------------------------------
 
     if was_voice:
 
@@ -999,9 +1064,6 @@ async def handle_customer_message(
         language=source_language
     )
 
-    # ---------------------------------
-    # UPDATE CUSTOMER LANGUAGE
-    # ---------------------------------
 
     supabase.table(
         BRIDGE_CUSTOMERS_TABLE
@@ -1017,9 +1079,6 @@ async def handle_customer_message(
         customer_id
     ).execute()
 
-    # ---------------------------------
-    # SAVE CUSTOMER MESSAGE
-    # ---------------------------------
 
     save_bridge_message(
         conversation_id=conversation_id,
@@ -1043,9 +1102,6 @@ async def handle_customer_message(
         or "Customer"
     )
 
-    # ---------------------------------
-    # SEND CUSTOMER MESSAGE TO OWNER
-    # ---------------------------------
 
     owner_message = (
         f"📩 New customer message\n\n"
@@ -1059,9 +1115,6 @@ async def handle_customer_message(
         owner_message
     )
 
-    # ---------------------------------
-    # HUMAN MODE
-    # ---------------------------------
 
     if handling_mode == "human":
 
@@ -1075,9 +1128,6 @@ async def handle_customer_message(
 
         return
 
-    # ---------------------------------
-    # AI SUPPORT
-    # ---------------------------------
 
     try:
 
@@ -1131,9 +1181,6 @@ async def handle_customer_message(
         )
     )
 
-    # ---------------------------------
-    # AI SUPPORT USAGE EVENT
-    # ---------------------------------
 
     save_usage_event(
         business_id=business_id,
@@ -1143,9 +1190,6 @@ async def handle_customer_message(
         language=source_language
     )
 
-    # ---------------------------------
-    # AI RESPONSE
-    # ---------------------------------
 
     if ai_reply and ai_reply.strip():
 
@@ -1199,9 +1243,6 @@ async def handle_customer_message(
             translated_ai_reply
         )
 
-    # ---------------------------------
-    # AI ESCALATION
-    # ---------------------------------
 
     if escalated:
 
