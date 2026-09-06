@@ -912,10 +912,13 @@ async def webhook(request: Request):
 
         return {"ok": True}
 
-    if (
 
+    if (
         text
-        and text.strip().lower() == "/start"
+        and text.strip().lower() in (
+            "/start",
+            "/language"
+        )
     ):
 
         await send_language_selection(
