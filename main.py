@@ -676,6 +676,11 @@ async def handle_customer_message(
 
     conversation_id = conversation["id"]
 
+    handling_mode = (
+        conversation.get("handling_mode")
+        or "ai"
+    )
+
     print(
         "ATUPCY BRIDGE CONVERSATION:",
         conversation
@@ -685,8 +690,10 @@ async def handle_customer_message(
     if not text and not voice:
         return
 
-    
-    required_credits = 7 if voice else 4
+    if handling_mode == "human":
+        required_credits = 4 if voice else 1
+    else:
+        required_credits = 7 if voice else 4
 
     try:
 
@@ -869,6 +876,16 @@ async def handle_customer_message(
         owner_message
     )
 
+    if handling_mode == "human":
+
+        await send_message(
+            owner_chat_id,
+            "👤 Human mode\n\n"
+            "This customer is currently being handled by you.\n"
+            "Reply to the customer directly."
+        )
+
+        return
 
     try:
 
