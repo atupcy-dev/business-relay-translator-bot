@@ -183,7 +183,9 @@ def get_or_create_conversation(
         "business_id": business_id,
         "customer_id": customer_id,
         "status": "active",
-        "channel": "telegram"
+        "channel": "telegram",
+        "handling_mode": "ai",
+        "handoff_status": "none"
     }
 
     response = (
@@ -988,6 +990,83 @@ def get_conversation_by_id(conversation_id: str):
         .select("*")
         .eq("id", conversation_id)
         .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+def update_conversation_handling_mode(
+    conversation_id: str,
+    handling_mode: str
+):
+    """
+    Change who is currently handling the conversation.
+
+    handling_mode:
+        - ai
+        - human
+    """
+
+    if handling_mode not in ("ai", "human"):
+        raise ValueError(
+            "Invalid handling mode"
+        )
+
+    response = (
+        supabase
+        .table(BRIDGE_CONVERSATIONS_TABLE)
+        .update(
+            {
+                "handling_mode": handling_mode
+            }
+        )
+        .eq("id", conversation_id)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+def update_conversation_handoff(
+    conversation_id: str,
+    handoff_status: str,
+    escalation_reason: str | None = None
+):
+    """
+    Update the human handoff state.
+
+    handoff_status:
+        - none
+        - offered
+        - accepted
+        - declined
+    """
+
+    if handoff_status not in (
+        "none",
+        "offered",
+        "accepted",
+        "declined"
+    ):
+        raise ValueError(
+            "Invalid handoff status"
+        )
+
+    data = {
+        "handoff_status": handoff_status
+    }
+
+    if escalation_reason is not None:
+        data["escalation_reason"] = escalation_reason
+
+    response = (
+        supabase
+        .table(BRIDGE_CONVERSATIONS_TABLE)
+        .update(data)
+        .eq("id", conversation_id)
         .execute()
     )
 
