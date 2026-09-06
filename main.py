@@ -491,6 +491,19 @@ async def webhook(request: Request):
 
             if selected_language == "search":
 
+                (
+                    supabase
+                    .table(BRIDGE_CUSTOMERS_TABLE)
+                    .update({
+                        "language_search_pending": True
+                    })
+                    .eq(
+                        "telegram_chat_id",
+                        callback_chat_id
+                    )
+                    .execute()
+                    )
+
                 await answer_callback_query(
                     callback_query["id"]
                 )
@@ -501,7 +514,6 @@ async def webhook(request: Request):
                 )
 
                 return {"ok": True}
-
 
             (
                 supabase
