@@ -32,6 +32,64 @@ BRIDGE_MESSAGES_TABLE = "atupcy_bridge_messages"
 
 DEFAULT_OWNER_LANGUAGE = "English"
 
+async def send_language_selection(
+    customer_chat_id: int
+):
+
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": "🇬🇧 English",
+                    "callback_data": "language:English"
+                },
+                {
+                    "text": "🇫🇷 Français",
+                    "callback_data": "language:French"
+                }
+            ],
+            [
+                {
+                    "text": "🇪🇸 Español",
+                    "callback_data": "language:Spanish"
+                },
+                {
+                    "text": "🇩🇪 Deutsch",
+                    "callback_data": "language:German"
+                }
+            ],
+            [
+                {
+                    "text": "🇦🇪 العربية",
+                    "callback_data": "language:Arabic"
+                },
+                {
+                    "text": "🇨🇳 中文",
+                    "callback_data": "language:Chinese"
+                }
+            ],
+            [
+                {
+                    "text": "🇯🇵 日本語",
+                    "callback_data": "language:Japanese"
+                },
+                {
+                    "text": "🔎 Search for another language",
+                    "callback_data": "language:search"
+                }
+            ]
+        ]
+    }
+
+    await send_message(
+        customer_chat_id,
+        "🌍 Welcome!\n\n"
+        "Please choose your preferred language.\n\n"
+        "If you don't see your language, "
+        "tap 🔎 Search for another language.",
+        reply_markup=reply_markup
+    )
+
 
 @app.get("/")
 async def health_check():
@@ -403,82 +461,82 @@ async def webhook(request: Request):
 
             return {"ok": True}
 
+        callback_query = update.get("callback_query")
 
-    callback_query = update.get("callback_query")
+        if callback_query:
 
-    if callback_query:
-
-        callback_data = callback_query.get("data")
-
-        callback_message = (
-            callback_query.get("message") or {}
-        )
-
-        callback_chat = (
-            callback_message.get("chat") or {}
-        )
-
-        callback_chat_id = callback_chat.get("id")
-
-
-        if (
-            callback_data
-            and callback_data.startswith("human_reply:")
-            and callback_chat_id
-        ):
-
-            conversation_id = callback_data.split(
-                "human_reply:",
-                1
-            )[1]
-
-            business = get_active_business()
-
-            if not business:
-                return {"ok": True}
-
-            owner_chat_id = business.get(
-                "owner_chat_id"
+            callback_data = callback_query.get("data")
+            callback_message = (
+                callback_query.get("message") or {}
             )
 
-            if not owner_chat_id:
-                return {"ok": True}
-
-            owner_chat_id = int(owner_chat_id)
-
-            # Only the business owner can take over
-            if callback_chat_id != owner_chat_id:
-                return {"ok": True}
-
-            conversation = get_conversation_by_id(
-                conversation_id
+            callback_chat = (
+                callback_message.get("chat") or {}
             )
 
-            if not conversation:
-                await send_message(
-                    owner_chat_id,
-                    "That conversation could not be found."
-                )
-                return {"ok": True}
+            callback_chat_id = callback_chat.get("id")
 
-            # Make sure the conversation belongs
-            # to this business
-            if conversation.get("business_id") != business["id"]:
-                await send_message(
-                    owner_chat_id,
-                    "That conversation does not belong to this business."
-                )
-                return {"ok": True}
 
-            # Conversation must still be active
-            if conversation.get("status") != "active":
-                await send_message(
-                    owner_chat_id,
-                    "That conversation is no longer active."
-                )
-                return {"ok": True}
+            if (
+                callback_data
+                and callback_data.startswith("human_reply:")
+                and callback_chat_id
+            ):
 
-            # Switch conversation to human handling
+                conversation_id = callback_data.split(
+                    "human_reply:",
+                    1
+                )[1]
+
+                business = get_active_business()
+
+                if not business:
+                    return {"ok": True}
+                owner_chat_id = business.get(
+                    "owner_chat_id"
+                )
+
+                if not owner_chat_id:
+                    return {"ok": True}
+
+
+                owner_chat_id = int(owner_chat_id)
+
+                # Only the business owner can take over
+                if callback_chat_id != owner_chat_id:
+                    return {"ok": True}
+
+                conversation = get_conversation_by_id(
+                    conversation_id
+                )
+
+                if not conversation:
+                    await send_message(
+                        owner_chat_id,
+                        "That conversation could not be found."
+                    )
+                    return {"ok": True}
+
+                # Make sure the conversation belongs
+                # to this business
+
+                if conversation.get("business_id") != business["id"]:
+                    await send_message(
+                        owner_chat_id,
+                        "That conversation does not belong to this business."
+                    )
+                    return {"ok": True}
+
+                # Conversation must still be active
+                if conversation.get("status") != "active":
+                    await send_message(
+                        owner_chat_id,
+                        "That conversation is no longer active."
+                    )
+                    return {"ok": True}
+
+                # Switch conversation to human handling
+
             update_conversation_handling_mode(
                 conversation_id=conversation_id,
                 handling_mode="human"
@@ -521,6 +579,39 @@ async def webhook(request: Request):
 
             return {"ok": True}
 
+        if callback_data.startswith("language:"):
+
+            selected_language = callback_data.split(":", 1)[1]
+
+            if selected_language == "search":
+                await send_message(
+                    callback_chat_id,
+                    "🔎 Please type the name of your preferred language."
+                )
+
+                return {"ok": True}
+
+            customer_response = (
+                supabase
+                .table(BRIDGE_CUSTOMERS_TABLE)
+                .update({
+                    "language": selected_language
+                })
+                .eq("telegram_chat_id", callback_chat_id)
+                .execute()
+            )
+
+            await answer_callback_query(
+                callback_query["id"]
+            )
+
+            await send_message(
+                callback_chat_id,
+                f"✅ Your preferred language is now set to {selected_language}.\n\n"
+                "You can change it anytime."
+            )
+
+            return {"ok": True}
 
         if (
             callback_data
@@ -531,8 +622,7 @@ async def webhook(request: Request):
             customer_id = callback_data.split(
                 "select_customer:",
                 1
-            )[1]
-
+                )[1]
             business = get_active_business()
 
             if not business:
@@ -592,15 +682,14 @@ async def webhook(request: Request):
                 f"Your next message will be sent to this customer."
             )
 
-
             return {"ok": True}
 
         return {"ok": True}
 
-
     message = update.get("message")
 
     if not message:
+
         return {"ok": True}
 
     chat = message.get("chat") or {}
