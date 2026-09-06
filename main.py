@@ -924,6 +924,63 @@ async def webhook(request: Request):
 
         return {"ok": True}
 
+    # CUSTOMER LANGUAGE SEARCH
+
+    if text:
+
+        customer_response = (
+            supabase
+            .table(BRIDGE_CUSTOMERS_TABLE)
+            .select("id, language_search_pending")
+            .eq(
+                "telegram_chat_id",
+                chat_id
+            )
+            .limit(1)
+            .execute()
+        )
+
+        customer_rows = customer_response.data or []
+
+        if customer_rows:
+
+            customer = customer_rows[0]
+
+            if customer.get("language_search_pending"):
+
+                selected_language = text.strip()
+
+                if not selected_language:
+                    await send_message(
+                        chat_id,
+                        "Please type a language name."
+                    )
+
+                    return {"ok": True}
+
+                (
+                    supabase
+                    .table(BRIDGE_CUSTOMERS_TABLE)
+                    .update({
+                        "language": selected_language,
+                        "language_search_pending": False
+                    })
+                    .eq(
+                        "id",
+                        customer["id"]
+                    )
+                    .execute()
+                )
+
+                await send_message(
+                    chat_id,
+                    f"✅ Your preferred language is now set to "
+                    f"{selected_language}.\n\n"
+                    "You can change it anytime."
+                )
+
+                return {"ok": True}
+
 
     try:
 
