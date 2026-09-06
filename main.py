@@ -900,6 +900,18 @@ async def webhook(request: Request):
 
         return {"ok": True}
 
+    if (
+
+        text
+        and text.strip().lower() == "/start"
+    ):
+
+        await send_language_selection(
+            customer_chat_id=chat_id
+        )
+
+        return {"ok": True}
+
 
     try:
 
