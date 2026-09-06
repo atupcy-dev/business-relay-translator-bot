@@ -416,6 +416,105 @@ async def webhook(request: Request):
 
         return {"ok": True}
 
+    if (
+        callback_data
+        and callback_data.startswith("human_reply:")
+        and callback_chat_id
+    ):
+
+        conversation_id = callback_data.split(
+            "human_reply:",
+            1
+        )[1]
+
+        business = get_active_business()
+
+        if not business:
+            return {"ok": True}
+
+        owner_chat_id = business.get(
+            "owner_chat_id"
+        )
+
+        if not owner_chat_id:
+            return {"ok": True}
+
+        owner_chat_id = int(owner_chat_id)
+
+        # Only the business owner can take over
+        if callback_chat_id != owner_chat_id:
+            return {"ok": True}
+
+        conversation = get_conversation_by_id(
+            conversation_id
+        )
+
+        if not conversation:
+            await send_message(
+                owner_chat_id,
+                "That conversation could not be found."
+            )
+            return {"ok": True}
+
+        # Make sure the conversation belongs
+        # to this business
+        if conversation.get("business_id") != business["id"]:
+            await send_message(
+                owner_chat_id,
+                "That conversation does not belong to this business."
+            )
+            return {"ok": True}
+
+        # Conversation must still be active
+        if conversation.get("status") != "active":
+            await send_message(
+                owner_chat_id,
+                "That conversation is no longer active."
+            )
+            return {"ok": True}
+
+        # Switch conversation to human handling
+        update_conversation_handling_mode(
+            conversation_id=conversation_id,
+            handling_mode="human"
+        )
+
+        update_conversation_handoff(
+            conversation_id=conversation_id,
+            handoff_status="accepted"
+        )
+
+        # Make this the owner's selected conversation
+        set_owner_selected_conversation(
+            business_id=business["id"],
+            owner_chat_id=owner_chat_id,
+            conversation_id=conversation_id
+        )
+
+        customer = get_customer_by_id(
+            conversation["customer_id"]
+        )
+
+        customer_name = (
+            customer.get("name")
+            if customer
+            else "Customer"
+        )
+
+        await answer_callback_query(
+            callback_query["id"]
+        )
+
+        await send_message(
+            owner_chat_id,
+            f"👤 Human mode activated\n\n"
+            f"Customer: {customer_name}\n\n"
+            f"Your next message will be sent directly "
+            f"to this customer."
+        )
+
+        return {"ok": True}
+
 
     message = update.get("message")
 
@@ -988,13 +1087,38 @@ async def handle_customer_message(
 
     if escalated:
 
-        await send_message(
-            owner_chat_id,
-            f"🚨 AI Support Escalation\n\n"
-            f"Customer: {customer_display_name}\n"
-            f"Language: {source_language}\n\n"
-            f"The AI support agent has flagged this conversation for human review."
-        )
+        update_conversation_handoff(
+            conversation_id=conversation_id,
+            handoff_status="offered",
+            escalation_reason=(
+                "AI support agent flagged the conversation "
+                "for human review."
+            )
+        ) 
+
+    reply_markup = {
+        "inline_keyboard": [
+            [
+                {
+                    "text": f"💬 Reply to {customer_display_name}",
+                    "callback_data": (
+                        f"human_reply:{conversation_id}"
+                    )
+                }
+            ]
+        ]
+    }
+
+    await send_message(
+        owner_chat_id,
+        f"🚨 AI Support Escalation\n\n"
+        f"Customer: {customer_display_name}\n"
+        f"Language: {source_language}\n\n"
+        f"The AI support agent has flagged this conversation "
+        f"for human review.\n\n"
+        f"Tap below to take over this conversation.",
+        reply_markup=reply_markup
+    )
 
 def get_conversation_by_id(conversation_id: str):
     """
@@ -2083,6 +2207,26 @@ async def send_message(
         response = await client.post(
             f"{TELEGRAM_API_URL}/sendMessage",
             json=payload,
+            timeout=30
+        )
+
+        response.raise_for_status()
+
+async def answer_callback_query(
+    callback_query_id: str
+):
+    """
+    Tell Telegram that an inline button was clicked.
+    This removes the loading/spinner state on the button.
+    """
+
+    async with httpx.AsyncClient() as client:
+
+        response = await client.post(
+            f"{TELEGRAM_API_URL}/answerCallbackQuery",
+            json={
+                "callback_query_id": callback_query_id
+            },
             timeout=30
         )
 
