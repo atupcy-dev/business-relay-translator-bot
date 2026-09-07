@@ -3,11 +3,19 @@ import json
 import traceback
 import httpx
 import asyncio
+import logging
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from openai import OpenAI
 from supabase import create_client, Client
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(message)s"
+)
+
+logger = logging.getLogger("atupcy_bridge")
 
 load_dotenv()
 
@@ -109,6 +117,37 @@ async def request_with_retry(
                 **kwargs
             )
 
+            # Retry only safe transient HTTP failures
+            if response.status_code == 429 or 500 <= response.status_code < 600:
+
+                if attempt >= retries:
+                    response.raise_for_status()
+
+                retry_after = response.headers.get("Retry-After")
+
+                if retry_after:
+                    try:
+                        wait_time = float(retry_after)
+                    except ValueError:
+                        wait_time = 2 ** attempt
+                else:
+                    wait_time = 2 ** attempt
+
+                logger.warning(
+                    "Transient HTTP error | "
+                    "method=%s | url=%s | status=%s | "
+                    "retry_in=%ss | attempt=%s/%s",
+                    method,
+                    url,
+                    response.status_code,
+                    wait_time,
+                    attempt + 1,
+                    retries
+                )
+
+                await asyncio.sleep(wait_time)
+                continue
+
             response.raise_for_status()
 
             return response
@@ -126,15 +165,24 @@ async def request_with_retry(
 
             wait_time = 2 ** attempt
 
-            print(
-                f"HTTP request failed. "
-                f"Retrying in {wait_time}s "
-                f"(attempt {attempt + 1}/{retries})"
+            logger.warning(
+                "HTTP request failed | "
+                "method=%s | url=%s | error=%r | "
+                "retry_in=%ss | attempt=%s/%s",
+                method,
+                url,
+                e,
+                wait_time,
+                attempt + 1,
+                retries
             )
 
             await asyncio.sleep(wait_time)
 
-    raise last_error
+    if last_error:
+        raise last_error
+
+    raise RuntimeError("HTTP request failed unexpectedly")
 
 
 @app.get("/")
@@ -431,49 +479,136 @@ def claim_telegram_update(
     update_id: int
 ) -> bool:
 
-    try:
-
-        response = (
-            supabase
-            .table(
-                "atupcy_bridge_processed_updates"
-            )
-            .insert(
-                {
-                    "update_id": update_id
-                }
-            )
-            .execute()
+    response = (
+        supabase
+        .rpc(
+            "claim_telegram_update",
+            {
+                "p_update_id": update_id
+            }
         )
+        .execute()
+    )
 
-        return True
+    return bool(response.data)
 
-    except Exception as e:
+def complete_telegram_update(
+    update_id: int
+) -> bool:
 
-        error_message = str(e)
+    response = (
+        supabase
+        .rpc(
+            "complete_telegram_update",
+            {
+                "p_update_id": update_id
+            }
+        )
+        .execute()
+    )
 
-        # Duplicate primary-key means
-        # another request already claimed it.
-        if (
-            "duplicate key" in error_message.lower()
-            or "23505" in error_message
-        ):
+    return bool(response.data)
 
-            print(
-                "DUPLICATE TELEGRAM UPDATE:",
-                update_id
+def start_bridge_execution(
+    operation: str,
+    update_id: int | None = None,
+    business_id: str | None = None,
+    conversation_id: str | None = None
+):
+    response = (
+        supabase
+        .table("atupcy_bridge_executions")
+        .insert({
+            "operation": operation,
+            "update_id": update_id,
+            "business_id": business_id,
+            "conversation_id": conversation_id,
+            "status": "started"
+        })
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+def finish_bridge_execution(
+    execution_id: str,
+    status: str = "completed",
+    error_type: str | None = None,
+    error_message: str | None = None
+):
+    if status not in ("completed", "failed"):
+        raise ValueError("Invalid execution status")
+
+    execution = (
+        supabase
+        .table("atupcy_bridge_executions")
+        .select("started_at")
+        .eq("id", execution_id)
+        .limit(1)
+        .execute()
+    )
+
+    rows = execution.data or []
+
+    if not rows:
+        return None
+
+    started_at = rows[0]["started_at"]
+
+    started = datetime.fromisoformat(
+        started_at.replace("Z", "+00:00")
+    )
+
+    completed_at = datetime.now(timezone.utc)
+
+    duration_ms = int(
+        (
+            completed_at - started
+        ).total_seconds() * 1000
+    )
+
+    response = (
+        supabase
+        .table("atupcy_bridge_executions")
+        .update({
+            "status": status,
+            "completed_at": completed_at.isoformat(),
+            "duration_ms": duration_ms,
+            "error_type": error_type,
+            "error_message": error_message
+        })
+        .eq("id", execution_id)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    return rows[0] if rows else None
+
+async def finish_telegram_update(
+    update_id,
+    execution_id=None
+):
+    if update_id is not None:
+        try:
+            complete_telegram_update(update_id)
+
+        except Exception as e:
+            logger.error(
+                "Failed to complete Telegram update | "
+                "update_id=%s | error=%r",
+                update_id,
+                e
             )
 
-            return False
+            if execution_id:
+                finish_bridge_execution(
+                    execution_id=execution_id
+                )
 
-        # Any other database error should
-        # not be silently treated as duplicate.
-        print(
-            "IDEMPOTENCY CLAIM FAILED:",
-            repr(e)
-        )
-
-        raise
+    return {"ok": True}
 
 @app.post("/webhook")
 async def webhook(request: Request):
@@ -494,8 +629,8 @@ async def webhook(request: Request):
 
             if not claimed:
 
-                print(
-                    "DUPLICATE TELEGRAM UPDATE:",
+                logger.warning(
+                    "Duplicate Telegram update ignored | update_id=%s",
                     update_id
                 )
 
@@ -503,12 +638,18 @@ async def webhook(request: Request):
 
         except Exception as e:
 
-            print(
-                "IDEMPOTENCY CLAIM FAILED:",
-                repr(e)
+            logger.error(
+                "Idempotency claim failed in webhook | error=%r",
+                e
             )
 
             return {"ok": True}
+
+        execution_id = start_bridge_execution(
+            operation="telegram_webhook",
+            business_id=None,
+            conversation_id=None
+        )
 
         callback_query = update.get("callback_query")
 
@@ -562,7 +703,9 @@ async def webhook(request: Request):
                     "🔎 Please type the name of your preferred language."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
             (
                 supabase
@@ -588,7 +731,9 @@ async def webhook(request: Request):
                 )
             )
 
-            return {"ok": True}
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id)
 
 
         if (
@@ -605,20 +750,26 @@ async def webhook(request: Request):
             business = get_active_business()
 
             if not business:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
             owner_chat_id = business.get(
                 "owner_chat_id"
             )
 
             if not owner_chat_id:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
             owner_chat_id = int(owner_chat_id)
 
             # Only the business owner can take over
             if callback_chat_id != owner_chat_id:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
             conversation = get_conversation_by_id(
                 conversation_id
@@ -631,7 +782,10 @@ async def webhook(request: Request):
                     "That conversation could not be found."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                    )
 
             # Make sure the conversation belongs
             # to this business
@@ -643,7 +797,10 @@ async def webhook(request: Request):
                     "That conversation does not belong to this business."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                    )
 
             # Conversation must still be active
 
@@ -654,7 +811,10 @@ async def webhook(request: Request):
                     "That conversation is no longer active."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                )
 
             # Switch conversation to human handling
 
@@ -698,7 +858,9 @@ async def webhook(request: Request):
                 f"to this customer."
             )
 
-            return {"ok": True}
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id)
 
 
         if (
@@ -715,19 +877,27 @@ async def webhook(request: Request):
             business = get_active_business()
 
             if not business:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
             owner_chat_id = business.get(
                 "owner_chat_id"
             )
 
             if not owner_chat_id:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                )
 
             owner_chat_id = int(owner_chat_id)
 
             if callback_chat_id != owner_chat_id:
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                )
 
             customer = get_customer_by_id(
                 customer_id
@@ -740,7 +910,10 @@ async def webhook(request: Request):
                     "That customer could not be found."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                )
 
             conversation = get_or_create_conversation(
                 business_id=business["id"],
@@ -771,23 +944,31 @@ async def webhook(request: Request):
                 f"Your next message will be sent to this customer."
             )
 
-            return {"ok": True}
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id)
 
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     message = update.get("message")
 
     if not message:
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     chat = message.get("chat") or {}
 
     chat_id = chat.get("id")
 
     if not chat_id:
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     customer_name = (
         chat.get("first_name")
@@ -799,7 +980,9 @@ async def webhook(request: Request):
     voice = message.get("voice")
 
     if not text and not voice:
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     business = get_active_business()
 
@@ -811,7 +994,9 @@ async def webhook(request: Request):
         )
 
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     owner_chat_id = business.get(
         "owner_chat_id"
@@ -828,7 +1013,9 @@ async def webhook(request: Request):
             "Atupcy Bridge is not fully configured yet."
         )
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
     owner_chat_id = int(owner_chat_id)
 
@@ -851,9 +1038,9 @@ async def webhook(request: Request):
 
             except Exception as e:
 
-                print(
-                    "CUSTOMERS COMMAND ERROR:",
-                    repr(e)
+                logger.error(
+                    "Customers command failed | error=%r",
+                    e
                 )
 
                 await send_message(
@@ -861,7 +1048,9 @@ async def webhook(request: Request):
                     "Sorry, something went wrong while loading your customers."
                 )
 
-            return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
         # /CURRENT COMMAND
 
@@ -876,9 +1065,9 @@ async def webhook(request: Request):
 
             except Exception as e:
 
-                print(
-                    "CURRENT COMMAND ERROR:",
-                    repr(e)
+                logger.error(
+                    "Current command error | error=%r",
+                    e
                 )
 
                 await send_message(
@@ -886,7 +1075,9 @@ async def webhook(request: Request):
                     "Sorry, something went wrong while checking the current customer."
                 )
 
-            return {"ok": True}
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id)
 
         # /CLOSE COMMAND
 
@@ -901,9 +1092,9 @@ async def webhook(request: Request):
 
             except Exception as e:
 
-                print(
-                    "CLOSE COMMAND ERROR:",
-                    repr(e)
+                logger.error(
+                    "Close command error | error=%r",
+                    e
                 )
 
                 await send_message(
@@ -911,7 +1102,9 @@ async def webhook(request: Request):
                     "Sorry, something went wrong while closing the conversation."
                 )
 
-            return {"ok": True}
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id)
 
         # /AI COMMAND
         if text and text.strip().lower() == "/ai":
@@ -925,7 +1118,10 @@ async def webhook(request: Request):
                         owner_chat_id,
                         "No active Atupcy Bridge business found."
                     )
-                    return {"ok": True}
+                    return await finish_telegram_update(
+                        update_id,
+                        execution_id=execution_id
+                    )
 
                 business_id = business["id"]
 
@@ -940,7 +1136,10 @@ async def webhook(request: Request):
                         "No customer is currently selected.\n\n"
                         "Use /customers to select a customer first."
                     )
-                    return {"ok": True}
+                    return await finish_telegram_update(
+                        update_id,
+                        execution_id=execution_id
+                    )
 
                 conversation_id = selected_conversation["id"]
 
@@ -955,7 +1154,10 @@ async def webhook(request: Request):
                         "This conversation is already closed.\n\n"
                         "Use /customers to select an active customer."
                     )
-                    return {"ok": True}
+                    return await finish_telegram_update(
+                        update_id,
+                        execution_id=execution_id
+                    )
 
                 update_conversation_handling_mode(
                     conversation_id=conversation_id,
@@ -986,9 +1188,9 @@ async def webhook(request: Request):
 
             except Exception as e:
 
-                print(
-                    "AI MODE SWITCH FAILED:",
-                    repr(e)
+                logger.error(
+                    "AI mode switch failed | error=%r",
+                    e
                 )
 
                 await send_message(
@@ -997,7 +1199,9 @@ async def webhook(request: Request):
                     "back to AI mode right now. Please try again later."
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id, 
+                    execution_id=execution_id)
 
         if text and text.strip().lower() == "/history":
 
@@ -1010,9 +1214,9 @@ async def webhook(request: Request):
 
             except Exception as e:
 
-                print(
-                    "HISTORY COMMAND ERROR:",
-                    repr(e)
+                logger.error(
+                    "History command error | error=%r",
+                    e
                 )
 
                 await send_message(
@@ -1020,7 +1224,9 @@ async def webhook(request: Request):
                     "Sorry, something went wrong while loading the conversation history."
                 )
 
-            return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id)
 
         try:
 
@@ -1034,9 +1240,9 @@ async def webhook(request: Request):
 
         except Exception as e:
 
-            print(
-                "OWNER MESSAGE ERROR:",
-                repr(e)
+            logger.error(
+                "Owner message error | error=%r",
+                e
             )
 
             await send_message(
@@ -1044,7 +1250,9 @@ async def webhook(request: Request):
                 "Sorry, something went wrong while processing your message."
             )
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id)
 
 
     if (
@@ -1059,7 +1267,10 @@ async def webhook(request: Request):
             customer_chat_id=chat_id
         )
 
-        return {"ok": True}
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id
+        )
 
     # CUSTOMER LANGUAGE SEARCH
 
@@ -1093,7 +1304,10 @@ async def webhook(request: Request):
                         "Please type a language name."
                     )
 
-                    return {"ok": True}
+                    return await finish_telegram_update(
+                        update_id,
+                        execution_id=execution_id
+                    )
 
                 (
                     supabase
@@ -1116,7 +1330,10 @@ async def webhook(request: Request):
                     )
                 )
 
-                return {"ok": True}
+                return await finish_telegram_update(
+                    update_id,
+                    execution_id=execution_id
+                )
 
     try:
 
@@ -1131,9 +1348,9 @@ async def webhook(request: Request):
         
     except Exception as e:
 
-        print(
-            "CUSTOMER MESSAGE ERROR:",
-            repr(e)
+        logger.error(
+            "Customer message error | error=%r",
+            e
         )
 
         traceback.print_exc()
@@ -1143,7 +1360,10 @@ async def webhook(request: Request):
             "Sorry, something went wrong while processing your message."
         )
 
-    return {"ok": True}
+    return await finish_telegram_update(
+        update_id,
+        execution_id=execution_id
+    )
 
 @app.post("/support-test")
 async def support_test():
@@ -1522,9 +1742,9 @@ async def handle_customer_message(
 
     except Exception as e:
 
-        print(
-            "CUSTOMER CREDIT CHECK FAILED:",
-            repr(e)
+        logger.error(
+            "Customer credit check failed | error=%r",
+            e
         )
 
         await send_message(
@@ -1567,9 +1787,9 @@ async def handle_customer_message(
 
         except Exception as e:
 
-            print(
-                "VOICE CREDIT CONSUMPTION FAILED:",
-                repr(e)
+            logger.error(
+                "Voice credit consumption failed | error=%r",
+                e
             )
 
             await send_message(
@@ -1599,10 +1819,9 @@ async def handle_customer_message(
 
     except Exception as e:
 
-        print(
-            "CUSTOMER TRANSLATION CREDIT "
-            "CONSUMPTION FAILED:",
-            repr(e)
+        logger.error(
+            "Customer translation credit consumption failed | error=%r",
+            e
         )
 
         await send_message(
@@ -1726,9 +1945,9 @@ async def handle_customer_message(
 
     except Exception as e:
 
-        print(
-            "AI SUPPORT CREDIT CONSUMPTION FAILED:",
-            repr(e)
+        logger.error(
+            "AI support credit consumption failed | error=%r",
+            e
         )
 
         await send_message(
@@ -1791,10 +2010,9 @@ async def handle_customer_message(
 
         except Exception as e:
 
-            print(
-                "AI RESPONSE TRANSLATION CREDIT "
-                "CONSUMPTION FAILED:",
-                repr(e)
+            logger.error(
+                "AI response translation credit consumption failed | error=%r",
+                e
             )
 
             await send_message(
@@ -2098,9 +2316,9 @@ async def handle_owner_message(
 
     except Exception as e:
 
-        print(
-            "OWNER CREDIT CHECK FAILED:",
-            repr(e)
+        logger.error(
+            "Owner credit check failed | error=%r",
+            e
         )
 
         await send_message(
@@ -2139,9 +2357,9 @@ async def handle_owner_message(
 
         except Exception as e:
 
-            print(
-                "OWNER VOICE CREDIT CONSUMPTION FAILED:",
-                repr(e)
+            logger.error(
+                "Owner voice credit consumption failed | error=%r",
+                e
             )
 
             return
@@ -2164,9 +2382,9 @@ async def handle_owner_message(
 
     except Exception as e:
 
-        print(
-            "OWNER TRANSLATION CREDIT CONSUMPTION FAILED:",
-            repr(e)
+        logger.error(
+            "Owner translation credit consumption failed | error=%r",
+            e
         )
 
         await send_message(
@@ -2582,9 +2800,9 @@ async def handle_close_command(
 
     except Exception as e:
 
-        print(
-            "CUSTOMER CLOSE MESSAGE ERROR:",
-            repr(e)
+        logger.error(
+            "Customer close message error | error=%r",
+            e
         )
 
         # Fallback message if translation/sending fails
@@ -2864,9 +3082,9 @@ async def transcribe_voice(file_id: str) -> str:
         try:
             file_data = file_info_response.json()
         except Exception as e:
-            print(
-                "TELEGRAM GETFILE JSON ERROR:",
-                repr(e)
+            logger.error(
+                "Telegram getFile JSON error | error=%r",
+                e
             )
             raise
 
@@ -2932,9 +3150,9 @@ async def transcribe_voice(file_id: str) -> str:
 
     except Exception as e:
 
-        print(
-            "OPENAI TRANSCRIPTION ERROR:",
-            repr(e)
+        logger.error(
+            "OpenAI transcription error | error=%r",
+            e
         )
 
         raise
