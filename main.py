@@ -864,6 +864,91 @@ async def webhook(request: Request):
 
             return {"ok": True}
 
+        # /AI COMMAND
+        if text and text.strip().lower() == "/ai":
+
+            try:
+
+                selected_conversation = get_owner_selected_conversation(
+                    business_id=business_id,
+                    owner_chat_id=owner_chat_id
+                )
+
+                business = get_active_business()
+
+                if not business:
+                    await send_message(
+                        owner_chat_id,
+                        "No active Atupcy Bridge business found."
+                    )
+                    return {"ok": True}
+
+                business_id = business["id"]
+
+                if not selected_conversation:
+                    await send_message(
+                        owner_chat_id,
+                        "No customer is currently selected.\n\n"
+                        "Use /customers to select a customer first."
+                    )
+                    return {"ok": True}
+
+                conversation_id = selected_conversation["id"]
+
+                if selected_conversation.get("status") != "active":
+                    clear_owner_selected_conversation(
+                        business_id=business_id,
+                        owner_chat_id=owner_chat_id
+                    )
+
+                    await send_message(
+                        owner_chat_id,
+                        "This conversation is already closed.\n\n"
+                        "Use /customers to select an active customer."
+                    )
+                    return {"ok": True}
+
+                update_conversation_handling_mode(
+                    conversation_id=conversation_id,
+                    handling_mode="ai"
+                )
+
+                update_conversation_handoff(
+                    conversation_id=conversation_id,
+                    handoff_status="none"
+                )
+
+                customer = get_customer_by_id(
+                    selected_conversation["customer_id"]
+                )
+
+                customer_display_name = (
+                    customer.get("name")
+                    if customer
+                    else "Customer"
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    f"🤖 AI mode activated\n\n"
+                    f"Customer: {customer_display_name}\n\n"
+                    "New customer messages will now be handled by the AI."
+                )
+
+            except Exception as e:
+
+                print(
+                    "AI MODE SWITCH FAILED:",
+                    repr(e)
+                )
+
+                await send_message(
+                    owner_chat_id,
+                    "I'm sorry, but I couldn't switch this conversation "
+                    "back to AI mode right now. Please try again later."
+                )
+
+                return {"ok": True}
 
         if text and text.strip().lower() == "/history":
 
