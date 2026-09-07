@@ -1066,6 +1066,48 @@ def get_language_confirmation(language: str) -> str:
         "You can change it anytime."
     )
 
+def get_credit_limit_message(language: str) -> str:
+
+    messages = {
+
+        "English":
+            "We're temporarily unable to process your request. "
+            "Please try again later.",
+
+        "French":
+            "Nous ne pouvons temporairement pas traiter votre demande. "
+            "Veuillez réessayer plus tard.",
+
+        "Spanish":
+            "No podemos procesar tu solicitud temporalmente. "
+            "Por favor, inténtalo de nuevo más tarde.",
+
+        "German":
+            "Wir können Ihre Anfrage derzeit vorübergehend nicht bearbeiten. "
+            "Bitte versuchen Sie es später erneut.",
+
+        "Arabic":
+            "يتعذر علينا معالجة طلبك مؤقتًا. "
+            "يرجى المحاولة مرة أخرى لاحقًا.",
+
+        "Chinese":
+            "我们暂时无法处理您的请求。"
+            "请稍后再试。",
+
+        "Japanese":
+            "現在、一時的にリクエストを処理できません。"
+            "後でもう一度お試しください。",
+
+        "Yoruba":
+            "A kò lè ṣe ìbéèrè rẹ fún àkókò díẹ̀. "
+            "Jọ̀wọ́ tún gbìyànjú lẹ́yìn náà.",
+    }
+
+    return messages.get(
+        language,
+        messages["English"]
+    )
+
 async def handle_customer_message(
     customer_chat_id: int,
     customer_name: str,
@@ -1139,8 +1181,9 @@ async def handle_customer_message(
 
             await send_message(
                 customer_chat_id,
-                "We're temporarily unable to process "
-                "your request. Please try again later."
+                get_credit_limit_message(
+                    customer.get("language") or "English"
+                )
             )
 
 
