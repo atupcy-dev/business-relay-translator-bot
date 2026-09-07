@@ -1108,6 +1108,48 @@ def get_credit_limit_message(language: str) -> str:
         messages["English"]
     )
 
+def get_processing_error_message(language: str) -> str:
+
+    messages = {
+
+        "English":
+            "I'm sorry, but I'm unable to process your "
+            "request right now. Please try again later.",
+
+        "French":
+            "Je suis désolé, mais je ne peux pas traiter "
+            "votre demande pour le moment. Veuillez réessayer plus tard.",
+
+        "Spanish":
+            "Lo siento, pero no puedo procesar tu solicitud "
+            "en este momento. Por favor, inténtalo de nuevo más tarde.",
+
+        "German":
+            "Es tut mir leid, aber ich kann Ihre Anfrage "
+            "im Moment nicht bearbeiten. Bitte versuchen Sie es später erneut.",
+
+        "Arabic":
+            "عذرًا، لا يمكنني معالجة طلبك في الوقت الحالي. "
+            "يرجى المحاولة مرة أخرى لاحقًا.",
+
+        "Chinese":
+            "很抱歉，我目前无法处理您的请求。"
+            "请稍后再试。",
+
+        "Japanese":
+            "申し訳ありませんが、現在リクエストを処理できません。"
+            "後でもう一度お試しください。",
+
+        "Yoruba":
+            "Má bínú, ṣùgbọ́n mi ò lè ṣe ìbéèrè rẹ "
+            "ní àkókò yìí. Jọ̀wọ́ tún gbìyànjú lẹ́yìn náà.",
+    }
+
+    return messages.get(
+        language,
+        messages["English"]
+    )
+
 async def handle_customer_message(
     customer_chat_id: int,
     customer_name: str,
@@ -1427,8 +1469,9 @@ async def handle_customer_message(
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I'm unable to process "
-            "your request right now. Please try again later."
+            get_processing_error_message(
+                customer.get("language") or "English"
+            )
         )
 
         await send_message(
