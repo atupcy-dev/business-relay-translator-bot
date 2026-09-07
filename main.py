@@ -534,9 +534,9 @@ async def webhook(request: Request):
 
             await send_message(
                 callback_chat_id,
-                f"✅ Your preferred language is now set to "
-                f"{selected_language}.\n\n"
-                "You can change it anytime."
+                get_language_confirmation(
+                    selected_language
+                )
             )
 
             return {"ok": True}
@@ -977,13 +977,12 @@ async def webhook(request: Request):
 
                 await send_message(
                     chat_id,
-                    f"✅ Your preferred language is now set to "
-                    f"{selected_language}.\n\n"
-                    "You can change it anytime."
+                    get_language_confirmation(
+                        selected_language
+                    )
                 )
 
                 return {"ok": True}
-
 
     try:
 
@@ -1023,6 +1022,49 @@ async def support_test():
         "status": "ok",
         "result": result
     }
+
+def get_language_confirmation(language: str) -> str:
+
+    confirmations = {
+
+        "English":
+            "✅ Your preferred language is now set to English.\n\n"
+            "You can change it anytime.",
+
+        "French":
+            "✅ Votre langue préférée est maintenant définie sur le français.\n\n"
+            "Vous pouvez la modifier à tout moment.",
+
+        "Spanish":
+            "✅ Tu idioma preferido ahora está configurado en español.\n\n"
+            "Puedes cambiarlo en cualquier momento.",
+
+        "German":
+            "✅ Ihre bevorzugte Sprache ist jetzt Deutsch.\n\n"
+            "Sie können sie jederzeit ändern.",
+
+        "Arabic":
+            "✅ تم تعيين لغتك المفضلة الآن على العربية.\n\n"
+            "يمكنك تغييرها في أي وقت.",
+
+        "Chinese":
+            "✅ 您的首选语言现已设置为中文。\n\n"
+            "您可以随时更改。",
+
+        "Japanese":
+            "✅ ご希望の言語が日本語に設定されました。\n\n"
+            "いつでも変更できます。",
+
+        "Yoruba":
+            "✅ Èdè tí o fẹ́ràn ti ṣètò sí Yorùbá.\n\n"
+            "O lè yí i padà nígbàkigbà.",
+    }
+
+    return confirmations.get(
+        language,
+        f"✅ Your preferred language is now set to {language}.\n\n"
+        "You can change it anytime."
+    )
 
 async def handle_customer_message(
     customer_chat_id: int,
@@ -1263,7 +1305,6 @@ async def handle_customer_message(
         BRIDGE_CUSTOMERS_TABLE
     ).update(
         {
-            "language": source_language,
             "last_seen_at": datetime.now(
                 timezone.utc
             ).isoformat()
