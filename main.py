@@ -1150,6 +1150,48 @@ def get_processing_error_message(language: str) -> str:
         messages["English"]
     )
 
+def get_voice_processing_error_message(language: str) -> str:
+
+    messages = {
+
+        "English":
+            "I'm sorry, but I can't process your "
+            "voice message right now. Please try again later.",
+
+        "French":
+            "Je suis désolé, mais je ne peux pas traiter "
+            "votre message vocal pour le moment. Veuillez réessayer plus tard.",
+
+        "Spanish":
+            "Lo siento, pero no puedo procesar tu "
+            "mensaje de voz en este momento. Por favor, inténtalo de nuevo más tarde.",
+
+        "German":
+            "Es tut mir leid, aber ich kann Ihre "
+            "Sprachnachricht derzeit nicht verarbeiten. Bitte versuchen Sie es später erneut.",
+
+        "Arabic":
+            "عذرًا، لا يمكنني معالجة رسالتك الصوتية "
+            "في الوقت الحالي. يرجى المحاولة مرة أخرى لاحقًا.",
+
+        "Chinese":
+            "很抱歉，我目前无法处理您的语音消息。"
+            "请稍后再试。",
+
+        "Japanese":
+            "申し訳ありませんが、現在音声メッセージを処理できません。"
+            "後でもう一度お試しください。",
+
+        "Yoruba":
+            "Má bínú, ṣùgbọ́n mi ò lè ṣe ìfiránṣẹ́ ohùn rẹ "
+            "ní àkókò yìí. Jọ̀wọ́ tún gbìyànjú lẹ́yìn náà.",
+    }
+
+    return messages.get(
+        language,
+        messages["English"]
+    )
+
 async def handle_customer_message(
     customer_chat_id: int,
     customer_name: str,
@@ -1269,8 +1311,9 @@ async def handle_customer_message(
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I can't process your message "
-            "right now. Please try again later."
+            get_processing_error_message(
+                customer.get("language") or "English"
+            )
         )
 
         return
@@ -1312,8 +1355,9 @@ async def handle_customer_message(
 
             await send_message(
                 customer_chat_id,
-                "I'm sorry, but I can't process your "
-                "voice message right now. Please try again later."
+                get_voice_processing_error_message(
+                    customer.get("language") or "English"
+                )
             )
 
             return
