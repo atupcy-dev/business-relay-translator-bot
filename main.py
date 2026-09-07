@@ -2,6 +2,7 @@ import os
 import json
 import traceback
 import httpx
+import asyncio
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
@@ -90,6 +91,51 @@ async def send_language_selection(
         reply_markup=reply_markup
     )
 
+async def request_with_retry(
+    client,
+    method: str,
+    url: str,
+    retries: int = 2,
+    **kwargs
+):
+    last_error = None
+
+    for attempt in range(retries + 1):
+
+        try:
+            response = await client.request(
+                method,
+                url,
+                **kwargs
+            )
+
+            response.raise_for_status()
+
+            return response
+
+        except (
+            httpx.TimeoutException,
+            httpx.NetworkError,
+            httpx.ConnectError
+        ) as e:
+
+            last_error = e
+
+            if attempt >= retries:
+                raise
+
+            wait_time = 2 ** attempt
+
+            print(
+                f"HTTP request failed. "
+                f"Retrying in {wait_time}s "
+                f"(attempt {attempt + 1}/{retries})"
+            )
+
+            await asyncio.sleep(wait_time)
+
+    raise last_error
+
 
 @app.get("/")
 async def health_check():
@@ -102,8 +148,11 @@ async def health_check():
 @app.get("/telegram-webhook-info")
 async def telegram_webhook_info():
     async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{TELEGRAM_API_URL}/getWebhookInfo"
+        response = await request_with_retry(
+            client,
+            "GET",
+            f"{TELEGRAM_API_URL}/getWebhookInfo",
+            timeout=30
         )
 
     return response.json()
@@ -2775,7 +2824,9 @@ async def send_to_ai_support(
     }
 
     async with httpx.AsyncClient() as client:
-        response = await client.post(
+        response = await request_with_retry(
+            client,
+            "POST",
             AI_SUPPORT_WEBHOOK_URL,
             json=payload,
             timeout=60
@@ -2788,12 +2839,14 @@ async def transcribe_voice(file_id: str) -> str:
 
     async with httpx.AsyncClient() as client:
 
-        
-        file_info_response = await client.get(
+        file_info_response = await request_with_retry(
+            client,
+            "GET",
             f"{TELEGRAM_API_URL}/getFile",
             params={
                 "file_id": file_id
-            }
+            },
+            timeout=30
         )
 
         print(
@@ -2830,11 +2883,11 @@ async def transcribe_voice(file_id: str) -> str:
             f"{BOT_TOKEN}/{file_path}"
         )
 
-        audio_response = await client.get(file_url)
-
-        print(
-            "TELEGRAM AUDIO STATUS:",
-            audio_response.status_code
+        audio_response = await request_with_retry(
+            client,
+            "GET",
+            file_url,
+            timeout=60
         )
 
         print(
@@ -2904,7 +2957,9 @@ async def send_message(
 
     async with httpx.AsyncClient() as client:
 
-        response = await client.post(
+        response = await request_with_retry(
+            client,
+            "POST",
             f"{TELEGRAM_API_URL}/sendMessage",
             json=payload,
             timeout=30
@@ -2922,7 +2977,9 @@ async def answer_callback_query(
 
     async with httpx.AsyncClient() as client:
 
-        response = await client.post(
+        response = await request_with_retry(
+            client,
+            "POST",
             f"{TELEGRAM_API_URL}/answerCallbackQuery",
             json={
                 "callback_query_id": callback_query_id
