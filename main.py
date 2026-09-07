@@ -1192,6 +1192,90 @@ def get_voice_processing_error_message(language: str) -> str:
         messages["English"]
     )
 
+def get_customer_fallback_message(language: str) -> str:
+
+    messages = {
+
+        "English":
+            "I'm sorry, but I can't process your message right now. "
+            "Please try again later.",
+
+        "French":
+            "Je suis désolé, mais je ne peux pas traiter votre message "
+            "pour le moment. Veuillez réessayer plus tard.",
+
+        "Spanish":
+            "Lo siento, pero no puedo procesar tu mensaje en este momento. "
+            "Por favor, inténtalo de nuevo más tarde.",
+
+        "German":
+            "Es tut mir leid, aber ich kann Ihre Nachricht derzeit nicht "
+            "verarbeiten. Bitte versuchen Sie es später erneut.",
+
+        "Arabic":
+            "عذرًا، لا يمكنني معالجة رسالتك في الوقت الحالي. "
+            "يرجى المحاولة مرة أخرى لاحقًا.",
+
+        "Chinese":
+            "很抱歉，我目前无法处理您的消息。"
+            "请稍后再试。",
+
+        "Japanese":
+            "申し訳ありませんが、現在メッセージを処理できません。"
+            "後でもう一度お試しください。",
+
+        "Yoruba":
+            "Má bínú, ṣùgbọ́n mi ò lè ṣe ìfiránṣẹ́ rẹ "
+            "ní àkókò yìí. Jọ̀wọ́ tún gbìyànjú lẹ́yìn náà.",
+    }
+
+    return messages.get(
+        language,
+        messages["English"]
+    )
+
+def get_voice_transcription_error_message(language: str) -> str:
+
+    messages = {
+
+        "English":
+            "I couldn't make out any speech in that voice note. "
+            "Please try again.",
+
+        "French":
+            "Je n'ai pas pu comprendre la parole dans ce message vocal. "
+            "Veuillez réessayer.",
+
+        "Spanish":
+            "No pude entender el audio de esa nota de voz. "
+            "Por favor, inténtalo de nuevo.",
+
+        "German":
+            "Ich konnte in dieser Sprachnachricht keine Sprache erkennen. "
+            "Bitte versuchen Sie es erneut.",
+
+        "Arabic":
+            "لم أتمكن من فهم الكلام في هذه الرسالة الصوتية. "
+            "يرجى المحاولة مرة أخرى.",
+
+        "Chinese":
+            "我无法听清这条语音消息中的内容。"
+            "请再试一次。",
+
+        "Japanese":
+            "この音声メッセージの内容を聞き取れませんでした。"
+            "もう一度お試しください。",
+
+        "Yoruba":
+            "Mi ò lè gbọ́ ohun tí o sọ nínú àkọsílẹ̀ ohùn yìí. "
+            "Jọ̀wọ́ tún gbìyànjú.",
+    }
+
+    return messages.get(
+        language,
+        messages["English"]
+    )
+
 async def handle_customer_message(
     customer_chat_id: int,
     customer_name: str,
@@ -1329,8 +1413,9 @@ async def handle_customer_message(
 
             await send_message(
                 customer_chat_id,
-                "I couldn't make out any speech in "
-                "that voice note. Please try again."
+                get_voice_transcription_error_message(
+                    customer.get("language") or "English"
+                )
             )
 
             return
@@ -1388,8 +1473,9 @@ async def handle_customer_message(
 
         await send_message(
             customer_chat_id,
-            "I'm sorry, but I can't process your "
-            "message right now. Please try again later."
+            get_customer_fallback_message(
+                customer.get("language") or "English"
+            )
         )
 
         return
@@ -1579,8 +1665,9 @@ async def handle_customer_message(
 
             await send_message(
                 customer_chat_id,
-                "I'm sorry, but I couldn't complete "
-                "the response right now. Please try again later."
+                get_customer_fallback_message(
+                    customer.get("language") or "English"
+                )
             )
 
             return
