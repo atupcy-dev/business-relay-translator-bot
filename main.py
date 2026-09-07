@@ -869,11 +869,6 @@ async def webhook(request: Request):
 
             try:
 
-                selected_conversation = get_owner_selected_conversation(
-                    business_id=business_id,
-                    owner_chat_id=owner_chat_id
-                )
-
                 business = get_active_business()
 
                 if not business:
@@ -884,6 +879,11 @@ async def webhook(request: Request):
                     return {"ok": True}
 
                 business_id = business["id"]
+
+                selected_conversation = get_owner_selected_conversation(
+                                    business_id=business_id,
+                                    owner_chat_id=owner_chat_id
+                                )
 
                 if not selected_conversation:
                     await send_message(
