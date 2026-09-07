@@ -1500,7 +1500,7 @@ async def handle_customer_message(
 
         ai_translation_result = translate(
             text=ai_reply,
-            target_language=source_language
+            target_language=customer.get("language") or source_language
         )
 
         translated_ai_reply = (
