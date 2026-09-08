@@ -654,12 +654,36 @@ async def finish_telegram_update(
 
         finally:
             if execution_id:
-                finish_bridge_execution(
-                    execution_id=execution_id,
-                    status=status,
-                    error_type=error_type,
-                    error_message=error_message
+                logger.info(
+                    "Finalizing Bridge execution | "
+                    "execution_id=%s | status=%s",
+                    execution_id,
+                    status
                 )
+
+                try:
+                    result = finish_bridge_execution(
+                        execution_id=execution_id,
+                        status=status,
+                        error_type=error_type,
+                        error_message=error_message
+                    )
+
+                    logger.info(
+                        "Bridge execution finalized | "
+                        "execution_id=%s | result=%s",
+                        execution_id,
+                        result
+                    )
+
+                except Exception as e:
+                    logger.error(
+                        "Bridge execution finalization failed | "
+                        "execution_id=%s | error=%r",
+                        execution_id,
+                        e,
+                        exc_info=True
+                    )
 
     return {"ok": True}
 
