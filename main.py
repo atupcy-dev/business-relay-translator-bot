@@ -1426,7 +1426,6 @@ async def webhook(request: Request):
             voice=voice
         )
 
-        
     except Exception as e:
 
         logger.error(
@@ -1441,12 +1440,17 @@ async def webhook(request: Request):
             "Sorry, something went wrong while processing your message."
         )
 
+        return await finish_telegram_update(
+            update_id,
+            execution_id=execution_id,
+            status="failed",
+            error_type=type(e).__name__,
+            error_message=str(e)
+        )
+
     return await finish_telegram_update(
         update_id,
-        execution_id=execution_id,
-        status="failed",
-        error_type=type(e).__name__,
-        error_message=str(e)
+        execution_id=execution_id
     )
 
 @app.post("/support-test")
