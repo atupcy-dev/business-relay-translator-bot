@@ -1422,7 +1422,13 @@ async def webhook(request: Request):
 
     try:
 
-        raise RuntimeError("Controlled Bridge execution failure test")
+        await handle_customer_message(
+            customer_chat_id=chat_id,
+            customer_name=customer_name,
+            business=business,
+            text=text,
+            voice=voice
+        )
 
     except Exception as e:
 
