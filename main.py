@@ -1416,12 +1416,11 @@ async def webhook(request: Request):
                     execution_id=execution_id
                 )
 
-    try:
+    execution_status = "completed"
+    execution_error_type = None
+    execution_error_message = None
 
-        if text == "__BRIDGE_FAILURE_TEST__":
-            raise RuntimeError(
-                "Intentional Bridge execution failure test."
-            )
+    try:
 
         await handle_customer_message(
             customer_chat_id=chat_id,
@@ -1432,6 +1431,10 @@ async def webhook(request: Request):
         )
 
     except Exception as e:
+
+        execution_status = "failed"
+        execution_error_type = type(e).__name__
+        execution_error_message = str(e)
 
         logger.error(
             "Customer message error | error=%r",
@@ -1445,17 +1448,12 @@ async def webhook(request: Request):
             "Sorry, something went wrong while processing your message."
         )
 
-        return await finish_telegram_update(
-            update_id,
-            execution_id=execution_id,
-            status="failed",
-            error_type=type(e).__name__,
-            error_message=str(e)
-        )
-
     return await finish_telegram_update(
         update_id,
-        execution_id=execution_id
+        execution_id=execution_id,
+        status=execution_status,
+        error_type=execution_error_type,
+        error_message=execution_error_message
     )
 
 @app.post("/support-test")
