@@ -541,7 +541,7 @@ def start_bridge_execution(
 
     rows = response.data or []
 
-    return rows[0] if rows else None
+    return rows[0]["id"] if rows else None
 
 def finish_bridge_execution(
     execution_id: str,
