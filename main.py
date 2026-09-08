@@ -635,7 +635,10 @@ def recover_stale_bridge_executions(
 
 async def finish_telegram_update(
     update_id,
-    execution_id=None
+    execution_id=None,
+    status="completed",
+    error_type=None,
+    error_message=None
 ):
     if update_id is not None:
         try:
@@ -652,7 +655,10 @@ async def finish_telegram_update(
         finally:
             if execution_id:
                 finish_bridge_execution(
-                    execution_id=execution_id
+                    execution_id=execution_id,
+                    status=status,
+                    error_type=error_type,
+                    error_message=error_message
                 )
 
     return {"ok": True}
@@ -755,7 +761,8 @@ async def webhook(request: Request):
 
                 return await finish_telegram_update(
                     update_id,
-                    execution_id=execution_id)
+                    execution_id=execution_id
+                )
 
             (
                 supabase
@@ -1412,7 +1419,10 @@ async def webhook(request: Request):
 
     return await finish_telegram_update(
         update_id,
-        execution_id=execution_id
+        execution_id=execution_id,
+        status="failed",
+        error_type=type(e).__name__,
+        error_message=str(e)
     )
 
 @app.post("/support-test")
