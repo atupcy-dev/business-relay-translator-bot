@@ -1422,9 +1422,6 @@ async def webhook(request: Request):
 
     try:
 
-        if os.getenv("BRIDGE_TEST_FAILURE") == "true":
-            raise RuntimeError("Intentional Bridge execution failure test")
-
         await handle_customer_message(
             customer_chat_id=chat_id,
             customer_name=customer_name,
