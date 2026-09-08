@@ -4,7 +4,7 @@ import traceback
 import httpx
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 from openai import OpenAI
@@ -20,6 +20,17 @@ logger = logging.getLogger("atupcy_bridge")
 load_dotenv()
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def recover_stale_executions_on_startup():
+    try:
+        recover_stale_bridge_executions()
+        logger.info("Stale Bridge execution recovery completed")
+    except Exception as e:
+        logger.error(
+            "Stale Bridge execution recovery failed | error=%r",
+            e
+        )
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -587,6 +598,41 @@ def finish_bridge_execution(
 
     return rows[0] if rows else None
 
+def recover_stale_bridge_executions(
+    max_age_minutes: int = 10
+):
+    cutoff_time = (
+        datetime.now(timezone.utc)
+        - timedelta(minutes=max_age_minutes)
+    ).isoformat()
+
+    response = (
+        supabase
+        .table("atupcy_bridge_executions")
+        .update({
+            "status": "failed",
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "error_type": "stale_execution",
+            "error_message": (
+                "Execution remained in started state "
+                "beyond the recovery threshold."
+            )
+        })
+        .eq("status", "started")
+        .lt("started_at", cutoff_time)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    if rows:
+        logger.warning(
+            "Recovered stale Bridge executions | count=%s",
+            len(rows)
+        )
+
+    return rows
+
 async def finish_telegram_update(
     update_id,
     execution_id=None
@@ -603,6 +649,7 @@ async def finish_telegram_update(
                 e
             )
 
+        finally:
             if execution_id:
                 finish_bridge_execution(
                     execution_id=execution_id
@@ -614,6 +661,8 @@ async def finish_telegram_update(
 async def webhook(request: Request):
 
     update = await request.json()
+
+    recover_stale_bridge_executions()
 
     print("TELEGRAM UPDATE:", update)
 
@@ -647,6 +696,7 @@ async def webhook(request: Request):
 
         execution_id = start_bridge_execution(
             operation="telegram_webhook",
+            update_id=update_id,
             business_id=None,
             conversation_id=None
         )
