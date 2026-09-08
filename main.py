@@ -2393,17 +2393,6 @@ async def handle_owner_message(
             credits=required_credits
         )
 
-        if not credit_check.get(
-            "has_enough_credits",
-            False
-        ):
-
-            await send_message(
-                owner_chat_id,
-                "Your Atupcy Bridge usage limit has been reached. Please contact Atupcy LTD to continue."
-            )
-
-            return
 
     except Exception as e:
 
