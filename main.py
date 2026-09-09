@@ -1085,8 +1085,8 @@ async def webhook(request: Request):
 
     if not owner_chat_id:
 
-        print(
-            "ERROR: Active business has no owner_chat_id"
+        logger.error(
+            "Active business has no owner_chat_id"
         )
 
         await send_message(
@@ -2345,15 +2345,6 @@ async def handle_owner_message(
 
         return
 
-    if not conversation:
-
-        await send_message(
-            owner_chat_id,
-            "There is no active customer conversation yet."
-        )
-
-        return
-
     conversation_id = conversation["id"]
     customer_id = conversation["customer_id"]
 
@@ -2384,31 +2375,6 @@ async def handle_owner_message(
         return
 
 
-    required_credits = 4 if voice else 1
-
-    try:
-
-        credit_check = check_bridge_credits(
-            business_id=business_id,
-            credits=required_credits
-        )
-
-
-    except Exception as e:
-
-        logger.error(
-            "Owner credit check failed | error=%r",
-            e
-        )
-
-        await send_message(
-            owner_chat_id,
-            "I'm sorry, but I can't process this message right now. Please try again later."
-        )
-
-        return
-
-
     if voice:
 
         text = await transcribe_voice(
@@ -2424,55 +2390,10 @@ async def handle_owner_message(
 
             return
 
-        try:
-
-            consume_bridge_credits(
-                business_id=business_id,
-                credits=3,
-                conversation_id=conversation_id,
-                event_type="voice_transcription",
-                channel="telegram",
-                description="Owner voice message transcription"
-            )
-
-        except Exception as e:
-
-            logger.error(
-                "Owner voice credit consumption failed | error=%r",
-                e
-            )
-
-            return
-
 
     if not text or not text.strip():
         return
 
-
-    try:
-
-        consume_bridge_credits(
-            business_id=business_id,
-            credits=1,
-            conversation_id=conversation_id,
-            event_type="translation",
-            channel="telegram",
-            description="Owner message translation"
-        )
-
-    except Exception as e:
-
-        logger.error(
-            "Owner translation credit consumption failed | error=%r",
-            e
-        )
-
-        await send_message(
-            owner_chat_id,
-            "I'm sorry, but I can't process this message right now. Please try again later."
-        )
-
-        return
 
     result = translate(
         text=text,
@@ -2515,7 +2436,7 @@ async def handle_owner_message(
         original_text=text,
         translated_text=translated_text,
         language=customer_language,
-        response_source="ai"
+        response_source="human"
     )
 
     update_conversation_timestamp(
