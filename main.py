@@ -2853,10 +2853,10 @@ async def handle_close_command(
     )
 
     customer_language = (
-        get_latest_customer_language(
+        customer.get("language")
+        or get_latest_customer_language(
             conversation_id
         )
-        or customer.get("language")
         or DEFAULT_OWNER_LANGUAGE
     )
 
