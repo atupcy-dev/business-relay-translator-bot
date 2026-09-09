@@ -1131,7 +1131,13 @@ async def webhook(request: Request):
 
                 return await finish_telegram_update(
                     update_id,
-                    execution_id=execution_id)
+                    execution_id=execution_id
+                )
+
+            return await finish_telegram_update(
+                update_id,
+                execution_id=execution_id
+            )
 
         # /CURRENT COMMAND
 
@@ -2456,7 +2462,7 @@ async def handle_owner_message(
     )
 
 async def handle_customers_command(
-    owner_chat_id: int,
+    owner_chat_id: int, 
     business: dict
 ):
     business_id = business["id"]
