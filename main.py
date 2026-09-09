@@ -2474,8 +2474,9 @@ async def handle_owner_message(
         customer["telegram_chat_id"]
     )
 
-    customer_language = get_latest_customer_language(
-        conversation_id
+    customer_language = (
+        customer.get("language")
+        or DEFAULT_OWNER_LANGUAGE
     )
 
 
