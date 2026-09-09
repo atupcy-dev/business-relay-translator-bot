@@ -1753,10 +1753,6 @@ async def handle_customer_message(
 
     customer_id = customer["id"]
 
-    print(
-        "ATUPCY BRIDGE CUSTOMER:",
-        customer
-    )
 
     conversation = get_or_create_conversation(
         business_id=business_id,
@@ -1770,10 +1766,6 @@ async def handle_customer_message(
         or "ai"
     )
 
-    print(
-        "ATUPCY BRIDGE CONVERSATION:",
-        conversation
-    )
 
     if not text and not voice:
         return
@@ -1840,7 +1832,10 @@ async def handle_customer_message(
     except Exception as e:
 
         logger.error(
-            "Customer credit check failed | error=%r",
+            "Customer credit check failed | "
+            "business_id=%s | conversation_id=%s | error=%r",
+            business_id,
+            conversation_id,
             e
         )
 
@@ -2068,12 +2063,69 @@ async def handle_customer_message(
 
         return
 
-    support_result = await send_to_ai_support(
-        conversation_id=conversation_id,
-        message=text
-    )
+    try:
+
+        support_result = await send_to_ai_support(
+            conversation_id=conversation_id,
+            message=text
+        )
+
+    except Exception as e:
+
+        logger.error(
+            "AI support request failed | "
+            "business_id=%s | conversation_id=%s | error=%r",
+            business_id,
+            conversation_id,
+            e
+        )
+
+        await send_message(
+            customer_chat_id,
+            get_processing_error_message(
+                customer.get("language") or "English"
+            )
+        )
+
+        await send_message(
+            owner_chat_id,
+            f"⚠️ AI Support Error\n\n"
+            f"Customer: {customer_display_name}\n"
+            f"Language: {source_language}\n\n"
+            f"The AI support service could not process "
+            f"this message right now.\n\n"
+            f"Please handle this customer manually."
+        )
+
+        return
+
+    if not isinstance(support_result, dict):
+            logger.error(
+                "Invalid AI support response | "
+                "business_id=%s | conversation_id=%s",
+                business_id,
+                conversation_id
+            )
+    
+            await send_message(
+                customer_chat_id,
+                get_processing_error_message(
+                    customer.get("language") or "English"
+                )
+            )
+    
+            await send_message(
+                owner_chat_id,
+                f"⚠️ AI Support Error\n\n"
+                f"Customer: {customer_display_name}\n\n"
+                f"The AI support service returned an invalid response.\n\n"
+                f"Please handle this customer manually."
+            )
+    
+            return
 
     ai_reply = support_result.get("reply")
+
 
     escalated = bool(
         support_result.get(
@@ -2121,14 +2173,45 @@ async def handle_customer_message(
 
             return
 
-        ai_translation_result = translate(
-            text=ai_reply,
-            target_language=customer.get("language") or source_language
-        )
+        try:
 
-        translated_ai_reply = (
-            ai_translation_result["translated_text"]
-        )
+            ai_translation_result = translate(
+                text=ai_reply,
+                target_language=customer.get("language") or source_language
+            )
+
+            translated_ai_reply = (
+                ai_translation_result["translated_text"]
+            )
+
+        except Exception as e:
+
+            logger.error(
+                "AI response translation failed | "
+                "business_id=%s | conversation_id=%s | error=%r",
+                business_id,
+                conversation_id,
+                e
+            )
+
+            await send_message(
+                customer_chat_id,
+                get_customer_fallback_message(
+                    customer.get("language") or source_language
+                )
+            )
+
+            await send_message(
+                owner_chat_id,
+                f"⚠️ AI Response Translation Error\n\n"
+                f"Customer: {customer_display_name}\n"
+                f"Language: {source_language}\n\n"
+                f"The AI response could not be translated "
+                f"for the customer.\n\n"
+                f"Please handle this customer manually."
+            )
+
+            return
 
         save_bridge_message(
             conversation_id=conversation_id,
@@ -2146,42 +2229,61 @@ async def handle_customer_message(
 
 
     if escalated:
+        try:
 
-        update_conversation_handoff(
-            conversation_id=conversation_id,
-            handoff_status="offered",
-            escalation_reason=(
-                "AI support agent flagged the "
-                "conversation for human review."
+            update_conversation_handoff(
+                conversation_id=conversation_id,
+                handoff_status="offered",
+                escalation_reason=(
+                    "AI support agent flagged the "
+                    "conversation for human review."
+                )
             )
-        )
 
-        reply_markup = {
-            "inline_keyboard": [
-                [
-                    {
-                        "text": (
-                            f"💬 Reply to "
-                            f"{customer_display_name}"
-                        ),
-                        "callback_data": (
-                            f"human_reply:"
-                            f"{conversation_id}"
-                        )
-                    }
+            reply_markup = {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": (
+                                f"💬 Reply to "
+                                f"{customer_display_name}"
+                            ),
+                            "callback_data": (
+                                f"human_reply:"
+                                f"{conversation_id}"
+                            )
+                        }
+                    ]
                 ]
-            ]
-        }
+            }
+
+            await send_message(
+                owner_chat_id,
+                f"🚨 AI Support Escalation\n\n"
+                f"Customer: {customer_display_name}\n"
+                f"Language: {source_language}\n\n"
+                f"The AI support agent has flagged this "
+                f"conversation for human review.\n\n"
+                f"Tap below to take over this conversation.",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            logger.error(
+            "AI escalation handling failed | "
+            "business_id=%s | conversation_id=%s | error=%r",
+            business_id,
+            conversation_id,
+            e
+        )
 
         await send_message(
             owner_chat_id,
-            f"🚨 AI Support Escalation\n\n"
-            f"Customer: {customer_display_name}\n"
-            f"Language: {source_language}\n\n"
-            f"The AI support agent has flagged this "
-            f"conversation for human review.\n\n"
-            f"Tap below to take over this conversation.",
-            reply_markup=reply_markup
+            f"⚠️ Human handoff could not be activated\n\n"
+            f"Customer: {customer_display_name}\n\n"
+            f"The AI flagged this conversation for human review, "
+            f"but the handoff notification could not be completed.\n\n"
+            f"Please check Bridge and handle the customer manually."
         )
 
 def get_conversation_by_id(conversation_id: str):
@@ -3074,14 +3176,9 @@ async def transcribe_voice(file_id: str) -> str:
             timeout=30
         )
 
-        print(
-            "TELEGRAM GETFILE STATUS:",
+        logger.info(
+            "Telegram voice file metadata retrieved | status=%s",
             file_info_response.status_code
-        )
-
-        print(
-            "TELEGRAM GETFILE RESPONSE:",
-            file_info_response.text
         )
 
         file_info_response.raise_for_status()
@@ -3097,11 +3194,6 @@ async def transcribe_voice(file_id: str) -> str:
 
         file_path = file_data["result"]["file_path"]
 
-        print(
-            "TELEGRAM FILE PATH:",
-            file_path
-        )
-
     
         file_url = (
             f"https://api.telegram.org/file/bot"
@@ -3115,19 +3207,11 @@ async def transcribe_voice(file_id: str) -> str:
             timeout=60
         )
 
-        print(
-            "TELEGRAM AUDIO CONTENT TYPE:",
-            audio_response.headers.get("content-type")
-        )
-
         audio_response.raise_for_status()
 
         audio_bytes = audio_response.content
 
-    print(
-        "VOICE FILE SIZE:",
-        len(audio_bytes)
-    )
+    
 
     if not audio_bytes:
         raise ValueError(
@@ -3137,8 +3221,8 @@ async def transcribe_voice(file_id: str) -> str:
     
     try:
 
-        print(
-            "OPENAI TRANSCRIPTION STARTING"
+        logger.info(
+            "OpenAI voice transcription starting"
         )
 
         transcription = openai_client.audio.transcriptions.create(
@@ -3150,9 +3234,8 @@ async def transcribe_voice(file_id: str) -> str:
             )
         )
 
-        print(
-            "OPENAI TRANSCRIPTION SUCCESS:",
-            transcription.text
+        logger.info(
+            "OpenAI voice transcription completed successfully"
         )
 
     except Exception as e:
