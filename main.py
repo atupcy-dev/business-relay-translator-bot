@@ -694,7 +694,6 @@ async def webhook(request: Request):
 
     recover_stale_bridge_executions()
 
-    print("TELEGRAM UPDATE:", update)
 
     update_id = update.get("update_id")
 
